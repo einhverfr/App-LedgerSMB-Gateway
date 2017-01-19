@@ -183,11 +183,49 @@ sub save_invoice {
 	return $form->{id};
 }
 
+get 'ar/:id' => sub { to_json(get_aa(param('id'), 'AR'))};
+get 'ap/:id' => sub { to_json(get_aa(param('id'), 'AP'))};
+
+my %vcmap = (
+    'AR' => 'customer',
+    'AP' => 'vendor',
+);
+
+sub get_aa {
+	my ($id, $arap) = @_;
+	my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+	);
+	my $form = new_form($db);
+	$form->{id} = $id;
+	$form->{arap} = lc($arap);
+	$form->{ARAP} = uc($arap);
+	$form->{vc} = $vcmap{$arap};
+	AA->transaction({}, $form);
+	$form->{dbh}->commit;
+        return {
+		reference => $form->{invnumber},
+		postdate  => $form->{transdate},
+		description => $form->{description},
+		lineitems => $form->{$form->{ARAP}},
+		counterparty => $form->{"$form->{vc}number"},
+	};	
+}
+post 'ar/new' => sub { redirect(save_aa(from_json(request->body)))};
+post 'ap/new' => sub { redirect(save_aa(from_json(request->body)))};
+
+sub save_aa {
+    die 'Not implemented';
+}
+
 sub get_payment {
 }
 
 sub save_payment {
 }
+
 
 sub get_counterparty {
 }

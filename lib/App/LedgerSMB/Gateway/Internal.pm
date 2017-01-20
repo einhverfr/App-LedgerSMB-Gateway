@@ -15,6 +15,20 @@ use LedgerSMB::IR;
 use LedgerSMB::DBObject::Account;
 use LedgerSMB::Locale;
 use LedgerSMB::Form;
+
+# next are for counterparty
+use LedgerSMB::Entity::Company;
+use LedgerSMB::Entity::Person;
+use LedgerSMB::Entity::Credit_Account;
+use LedgerSMB::Entity::Person::Employee;
+use LedgerSMB::Entity::Payroll::Wage;
+use LedgerSMB::Entity::Payroll::Deduction;
+use LedgerSMB::Entity::Location;
+use LedgerSMB::Entity::Contact;
+use LedgerSMB::Entity::Bank;
+use LedgerSMB::Entity::Note;
+use LedgerSMB::Entity::User;
+
 Log::Log4perl::init(\$LedgerSMB::Sysconfig::log4perl_config);
 my $locale = bless {}, 'LedgerSMB::Locale';
 
@@ -226,8 +240,38 @@ sub get_payment {
 sub save_payment {
 }
 
-
+get 'counterparty/:id' => sub { to_json(get_counterparty(param('id'))) };
 sub get_counterparty {
+    my ($control_code) = @_;
+    my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+    );
+    local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 0 });
+    local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    my $entity =
+         LedgerSMB::Entity::Company->get_by_cc($control_code);
+    $entity ||=  LedgerSMB::Entity::Person->get_by_cc($control_code);
+    $entity->{credit_accounts} = [ LedgerSMB::Entity::Credit_Account->list_for_entity(
+                     $entity->{id},
+                     $entity->{entity_class}
+    ) ];
+    $entity->{addresses} = [ LedgerSMB::Entity::Location->get_active(
+                   {entity_id => $entity->{id},
+                    credit_id => undef }
+    ) ];
+
+    $entity->{contact_info} = [ LedgerSMB::Entity::Contact->list(
+              {entity_id => $entity->{id},
+               credit_id => undef, }
+    ) ];
+    $entity->{bank_accounts} = [ LedgerSMB::Entity::Bank->list($entity->{id}) ];
+    $entity->{comments} = [ LedgerSMB::Entity::Note->list($entity->{id},
+			            undef) ];
+    $LedgerSMB::App_State::DBH->commit;    
+    return($entity);
+
 }
 
 sub save_counterparty {

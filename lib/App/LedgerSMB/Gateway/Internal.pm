@@ -102,6 +102,9 @@ sub _convert_lines_from_gl {
          account_number => $_->{accno},
 	 account_description => $_->{description},
 	 amount => $_->{amount},
+         reference => $_->{source},
+         description => $_->{memo},
+         
     } } @$lines;
 }
 
@@ -238,6 +241,68 @@ sub get_payment {
 }
 
 sub save_payment {
+}
+
+get 'account/:id' => sub { to_json(get_account(param('id'))) };
+post 'account/new' => sub { redirect(save_account(from_json(request->body))) };
+
+sub get_account {
+    my ($id) = @_;
+    my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+    );
+    local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 0 });
+    local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    my ($account) = LedgerSMB::DBObject::Account->get($id);
+    return _from_account($account);
+}
+
+my $category = {
+   A => 'Asset',
+   L => 'Liability',
+   Q => 'Equity',
+   E => 'Expense',
+   I => 'Income',
+};
+
+my $rcategory = { map { $category->{$_} => $_ } keys %$category };
+
+sub _from_account {
+    my ($lsmb_act) = @_;
+    return {
+        id => $lsmb_act->{id},
+	account_number => $lsmb_act->{accno},
+        description => $lsmb_act->{description},
+        account_type => $category->{$lsmb_act->{category}},
+        
+    };
+}
+
+sub _to_account {
+    my ($neutral) = $_;
+    return {
+        id => $neutral->{id},
+        accno => $neutral->{accno},
+        description => $neutral->{description},
+        category => $rcategory->{$neutral->{account_type}},
+        
+    };
+}
+
+sub save_account {
+    my ($in_account) = ($_);
+    my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+    );
+    local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 0 });
+    local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    my $account = LedgerSMB::DBObject::Account->new(base => _to_account($in_account));
+    $account->save;
+    return $account->{id};
 }
 
 get 'counterparty/:id' => sub { to_json(get_counterparty(param('id'))) };

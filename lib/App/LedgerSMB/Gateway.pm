@@ -1,8 +1,8 @@
 package App::LedgerSMB::Gateway;
 use App::LedgerSMB::Auth qw(authenticate);
 use App::LedgerSMB::Gateway::Internal;
-
-use Dancer ':syntax';
+use App::LedgerSMB::Gateway::Quickbooks;
+use JSON;
 
 our $VERSION = '0.1';
 

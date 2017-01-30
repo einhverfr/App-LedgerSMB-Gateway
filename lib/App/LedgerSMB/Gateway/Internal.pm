@@ -15,6 +15,20 @@ use LedgerSMB::IR;
 use LedgerSMB::DBObject::Account;
 use LedgerSMB::Locale;
 use LedgerSMB::Form;
+
+# next are for counterparty
+use LedgerSMB::Entity::Company;
+use LedgerSMB::Entity::Person;
+use LedgerSMB::Entity::Credit_Account;
+use LedgerSMB::Entity::Person::Employee;
+use LedgerSMB::Entity::Payroll::Wage;
+use LedgerSMB::Entity::Payroll::Deduction;
+use LedgerSMB::Entity::Location;
+use LedgerSMB::Entity::Contact;
+use LedgerSMB::Entity::Bank;
+use LedgerSMB::Entity::Note;
+use LedgerSMB::Entity::User;
+
 Log::Log4perl::init(\$LedgerSMB::Sysconfig::log4perl_config);
 my $locale = bless {}, 'LedgerSMB::Locale';
 
@@ -88,6 +102,9 @@ sub _convert_lines_from_gl {
          account_number => $_->{accno},
 	 account_description => $_->{description},
 	 amount => $_->{amount},
+         reference => $_->{source},
+         description => $_->{memo},
+         
     } } @$lines;
 }
 
@@ -226,8 +243,100 @@ sub get_payment {
 sub save_payment {
 }
 
+get 'account/:id' => sub { to_json(get_account(param('id'))) };
+post 'account/new' => sub { redirect(save_account(from_json(request->body))) };
 
+sub get_account {
+    my ($id) = @_;
+    my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+    );
+    local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 0 });
+    local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    my ($account) = LedgerSMB::DBObject::Account->get($id);
+    return _from_account($account);
+}
+
+my $category = {
+   A => 'Asset',
+   L => 'Liability',
+   Q => 'Equity',
+   E => 'Expense',
+   I => 'Income',
+};
+
+my $rcategory = { map { $category->{$_} => $_ } keys %$category };
+
+sub _from_account {
+    my ($lsmb_act) = @_;
+    return {
+        id => $lsmb_act->{id},
+	account_number => $lsmb_act->{accno},
+        description => $lsmb_act->{description},
+        account_type => $category->{$lsmb_act->{category}},
+        
+    };
+}
+
+sub _to_account {
+    my ($neutral) = $_;
+    return {
+        id => $neutral->{id},
+        accno => $neutral->{accno},
+        description => $neutral->{description},
+        category => $rcategory->{$neutral->{account_type}},
+        
+    };
+}
+
+sub save_account {
+    my ($in_account) = ($_);
+    my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+    );
+    local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 0 });
+    local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    my $account = LedgerSMB::DBObject::Account->new(base => _to_account($in_account));
+    $account->save;
+    return $account->{id};
+}
+
+get 'counterparty/:id' => sub { to_json(get_counterparty(param('id'))) };
 sub get_counterparty {
+    my ($control_code) = @_;
+    my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+    );
+    local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 0 });
+    local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    my $entity =
+         LedgerSMB::Entity::Company->get_by_cc($control_code);
+    $entity ||=  LedgerSMB::Entity::Person->get_by_cc($control_code);
+    $entity->{credit_accounts} = [ LedgerSMB::Entity::Credit_Account->list_for_entity(
+                     $entity->{id},
+                     $entity->{entity_class}
+    ) ];
+    $entity->{addresses} = [ LedgerSMB::Entity::Location->get_active(
+                   {entity_id => $entity->{id},
+                    credit_id => undef }
+    ) ];
+
+    $entity->{contact_info} = [ LedgerSMB::Entity::Contact->list(
+              {entity_id => $entity->{id},
+               credit_id => undef, }
+    ) ];
+    $entity->{bank_accounts} = [ LedgerSMB::Entity::Bank->list($entity->{id}) ];
+    $entity->{comments} = [ LedgerSMB::Entity::Note->list($entity->{id},
+			            undef) ];
+    $LedgerSMB::App_State::DBH->commit;    
+    return($entity);
+
 }
 
 sub save_counterparty {

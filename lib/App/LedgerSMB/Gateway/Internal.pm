@@ -1,5 +1,6 @@
 package App::LedgerSMB::Gateway::Internal;
 use App::LedgerSMB::Auth qw(authenticate);
+use App::LedgerSMB::Gateway::Internal::Locale;
 use lib "/home/chris/ledgersmb";
 use LedgerSMB::Sysconfig;
 use Log::Log4perl;
@@ -28,7 +29,6 @@ use LedgerSMB::Entity::Contact;
 use LedgerSMB::Entity::Bank;
 use LedgerSMB::Entity::Note;
 use LedgerSMB::Entity::User;
-use App::LedgerSMB::Gateway::Internal::Locale;
 
 Log::Log4perl::init(\$LedgerSMB::Sysconfig::log4perl_config);
 my $locale = App::LedgerSMB::Gateway::Internal::Locale->new();

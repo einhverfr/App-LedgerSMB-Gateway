@@ -28,9 +28,10 @@ use LedgerSMB::Entity::Contact;
 use LedgerSMB::Entity::Bank;
 use LedgerSMB::Entity::Note;
 use LedgerSMB::Entity::User;
+use App::LedgerSMB::Gateway::Internal::Locale;
 
 Log::Log4perl::init(\$LedgerSMB::Sysconfig::log4perl_config);
-my $locale = bless {}, 'LedgerSMB::Locale';
+my $locale = App::LedgerSMB::Gateway::Internal::Locale->new();
 
 use Dancer ':syntax';
 prefix '/lsmbgw/0.1/:company/internal';

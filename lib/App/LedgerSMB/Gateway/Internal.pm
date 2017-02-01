@@ -1,7 +1,7 @@
 package App::LedgerSMB::Gateway::Internal;
 use App::LedgerSMB::Auth qw(authenticate);
-use App::LedgerSMB::Gateway::Internal::Locale;
 use lib "/home/chris/ledgersmb";
+use App::LedgerSMB::Gateway::Internal::Locale;
 use LedgerSMB::Sysconfig;
 use Log::Log4perl;
 use Dancer ':syntax';

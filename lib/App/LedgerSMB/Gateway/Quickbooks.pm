@@ -16,7 +16,7 @@ sub je_amount_sign {
     return 1;
 }
 
-sub je_lines_to_internal {
+sub _je_lines_to_internal {
     my ($lineref) = @_;
     return [ map {
              account_number => $_->{AccountRef}->{value},
@@ -27,7 +27,7 @@ sub je_lines_to_internal {
     }, @$lineref ];
 }
 
-sub je_lines_from_internal {
+sub _je_lines_from_internal {
     my ($lineref) = @_;
     my $i = 0;
     return [ map {
@@ -82,8 +82,8 @@ sub je_save {
     );
 }
 
-get 'journal_entry/:id' => sub {to_json(get_je(param('id')))};
-post 'journal_entry/new' => sub {redirect(je_save(request->body))};
+get '/journal_entry/:id' => sub {to_json(get_je(param('id')))};
+post '/journal_entry/new' => sub {redirect(je_save(request->body))};
 
 1;
 

@@ -201,13 +201,26 @@ sub save_invoice {
 	return $form->{id};
 }
 
-get 'ar/:id' => sub { to_json(get_aa(param('id'), 'AR'))};
-get 'ap/:id' => sub { to_json(get_aa(param('id'), 'AP'))};
+get '/ar/:id' => sub { to_json(get_aa(param('id'), 'AR'))};
+get '/ap/:id' => sub { to_json(get_aa(param('id'), 'AP'))};
 
 my %vcmap = (
     'AR' => 'customer',
     'AP' => 'vendor',
 );
+
+sub _aa_line_from_internal {
+    my ($line) = @_;
+    return {
+        account_number => $_->{accno},
+        account_desc   => $_->{description},
+        reference      => $_->{source},
+        description    => $_->{memo},
+        postdate       => $_->{transdate},
+        amount         => $_->{amount}->bstr,
+    };
+}
+
 
 sub get_aa {
 	my ($id, $arap) = @_;
@@ -217,17 +230,32 @@ sub get_aa {
             dbname => param('company'),
 	);
 	my $form = new_form($db);
-	$form->{id} = $id;
+	if ( $arap eq 'AP' ) {
+ 	    $form->{ARAP} = 'AP';
+            $form->{vc}   = 'vendor';
+	}  elsif ( $arap eq 'AR' ) {
+            $form->{ARAP} = 'AR';
+            $form->{vc}   = 'customer';
+        }
+
 	$form->{arap} = lc($arap);
+	$form->{id} = $id;
 	$form->{ARAP} = uc($arap);
 	$form->{vc} = $vcmap{$arap};
-	AA->transaction({}, $form);
+ 	$form->create_links( module => $form->{ARAP},
+                             myconfig => {},
+	                          vc => $form->{vc},
+	                    billing => $form->{vc} eq 'customer');
+
 	$form->{dbh}->commit;
+	my @lines = map { _aa_line_from_internal($_) }
+	            map { @{$form->{acc_trans}->{$_}} } 
+	            keys %{$form->{acc_trans}};
         return {
 		reference => $form->{invnumber},
 		postdate  => $form->{transdate},
 		description => $form->{description},
-		lineitems => $form->{$form->{ARAP}},
+		lineitems => \@lines,
 		counterparty => $form->{"$form->{vc}number"},
 	};	
 }

@@ -3,6 +3,9 @@ package App::LedgerSMB::Gateway::Quickbooks;
 use App::LedgerSMB::Gateway::Internal;
 use Dancer ':syntax';
 
+use strict;
+use warnings;
+
 prefix '/lsmbgw/0.1/:company/quickbooks';
 our $VERSION = '0.1';
 

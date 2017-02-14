@@ -1,6 +1,6 @@
 package App::LedgerSMB::Gateway::Internal;
 use App::LedgerSMB::Auth qw(authenticate);
-use lib "/home/chris/ledgersmb";
+use lib "/home/chris/ledgersmb/lib";
 use App::LedgerSMB::Gateway::Internal::Locale;
 use LedgerSMB::Sysconfig;
 use Log::Log4perl;
@@ -16,6 +16,7 @@ use LedgerSMB::IR;
 use LedgerSMB::DBObject::Account;
 use LedgerSMB::Locale;
 use LedgerSMB::Form;
+use LedgerSMB::Tax;
 
 # next are for counterparty
 use LedgerSMB::Entity::Company;
@@ -159,8 +160,10 @@ sub get_invoice {
 	my $form = new_form($db);
 	$form->{id} = $id;
 	IS->retrieve_invoice({}, $form);
+	_inv_order_calc_taxes($form);
 	$form->{dbh}->commit;
         return {
+		taxes => $form->{taxbasis},
 		reference => $form->{invnumber},
 		postdate  => $form->{transdate},
 		description => $form->{description},
@@ -378,6 +381,48 @@ sub new_form {
    $form->{dbh} = $db->connect({ AutoCommit => 0 });
    $form->{$_} = $struct->{$_} for keys %$struct; 
    return $form;
+}
+
+sub _inv_order_calc_taxes {
+    my ($form) = @_;
+    $form->{subtotal} = $form->{invsubtotal};
+    my $moneyplaces = $LedgerSMB::Company_Config::settings->{decimal_places};
+    for my $i (1 .. $form->{rowcount}){
+        my $discount_amount = $form->round_amount( $form->{"sellprice_$i"}
+                                      * ($form->{"discount_$i"} / 100),
+                                    $moneyplaces);
+        my $linetotal = $form->round_amount( $form->{"sellprice_$i"}
+                                      - $discount_amount,
+                                      $moneyplaces);
+        $linetotal = $form->round_amount( $linetotal * $form->{"qty_$i"},
+                                          $moneyplaces);
+        my @taxaccounts = Tax::init_taxes(
+            $form, $form->{"taxaccounts_$i"},
+            $form->{'taxaccounts'}
+        );
+        my $tax;
+        my $fxtax;
+        my $amount;
+        if ( $form->{taxincluded} ) {
+            $tax += $amount =
+              Tax::calculate_taxes( \@taxaccounts, $form, $linetotal, 1 );
+
+            $form->{"sellprice_$i"} -= $amount / $form->{"qty_$i"};
+        }
+        else {
+            $tax //= LedgerSMB::PGNumber->from_db(0);
+            $tax += $amount =
+              Tax::calculate_taxes( \@taxaccounts, $form, $linetotal, 0 );
+        }
+        for (@taxaccounts) {
+            $form->{tax_obj}{$_->account} = $_;
+            $form->{taxes}{$_->account} = 0 if ! $form->{taxes}{$_->account};
+            $form->{taxes}{$_->account} += $_->value;
+            if ($_->value){
+               $form->{taxbasis}{$_->account} += $linetotal;
+            }
+        }
+    }
 }
 
 

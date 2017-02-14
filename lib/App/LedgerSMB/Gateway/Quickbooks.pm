@@ -83,7 +83,43 @@ sub je_save {
 }
 
 get '/journal_entry/:id' => sub {to_json(get_je(param('id')))};
-post '/journal_entry/new' => sub {redirect(je_save(request->body))};
+post '/journal_entry/new' => sub {redirect(je_save(from_json(request->body)))};
+
+get '/invoice/:id' => sub {to_json(get_bill(param('id')))};
+post '/invoice/:id' => sub {redirect(save_bill(from_json(request->body)))};
+
+sub internal_to_invoice {
+    my ($inv) = @_;
+    return {
+       
+       
+       
+       
+    };
+}
+
+sub invoice_to_internal {
+    my ($bill) = @_;
+    return {
+       
+       
+       
+       
+    };
+}
+sub get_bill {
+    my ($id) = @_;
+    return interal_to_bill(
+        App::LedgerSMB::Gateway::Internal::get_invoice($id)
+    );
+}
+
+sub save_bill {
+    my ($bill) = @_;
+    return App::LedgerSMB::Gateway::Internal::save_invoice(
+        bill_to_internal($bill)
+    );
+}
 
 1;
 

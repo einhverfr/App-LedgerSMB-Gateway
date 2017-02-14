@@ -6,10 +6,6 @@ use Dancer ':syntax';
 prefix '/lsmbgw/0.1/:company/quickbooks';
 our $VERSION = '0.1';
 
-sub journalentry_route {
-    # will be needed when we support ar/ap transactions here
-}
-
 sub je_amount_sign {
     my ($type) = @_;
     return -1 if $type eq 'Debit';
@@ -85,8 +81,8 @@ sub je_save {
 get '/journal_entry/:id' => sub {to_json(get_je(param('id')))};
 post '/journal_entry/new' => sub {redirect(je_save(from_json(request->body)))};
 
-get '/invoice/:id' => sub {to_json(get_bill(param('id')))};
-post '/invoice/:id' => sub {redirect(save_bill(from_json(request->body)))};
+get '/invoice/:id' => sub {to_json(get_invoice(param('id')))};
+post '/invoice/:id' => sub {redirect(save_invoice(from_json(request->body)))};
 
 sub internal_to_invoice {
     my ($inv) = @_;
@@ -107,14 +103,14 @@ sub invoice_to_internal {
        
     };
 }
-sub get_bill {
+sub get_invoice {
     my ($id) = @_;
     return interal_to_bill(
         App::LedgerSMB::Gateway::Internal::get_invoice($id)
     );
 }
 
-sub save_bill {
+sub save_invoice {
     my ($bill) = @_;
     return App::LedgerSMB::Gateway::Internal::save_invoice(
         bill_to_internal($bill)

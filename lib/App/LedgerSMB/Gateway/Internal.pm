@@ -120,6 +120,12 @@ Takes in a gl in format above and saves it, returning the new id.
 
 sub save_gl {
     my ($struct) = @_;
+    if ((ref $struct) =~ /ARRAY/) {
+	  for my $s (@$struct){
+	      save_gl($s);
+          }
+	  return 1;
+    }
     my $db = authenticate(
             host   => $LedgerSMB::Sysconfig::db_host,
             port   => $LedgerSMB::Sysconfig::db_port,

@@ -16,6 +16,7 @@ use LedgerSMB::IR;
 use LedgerSMB::DBObject::Account;
 use LedgerSMB::Locale;
 use LedgerSMB::Form;
+use LedgerSMB::Tax;
 
 # next are for counterparty
 use LedgerSMB::Entity::Company;
@@ -119,6 +120,12 @@ Takes in a gl in format above and saves it, returning the new id.
 
 sub save_gl {
     my ($struct) = @_;
+    if ((ref $struct) =~ /ARRAY/) {
+	  for my $s (@$struct){
+	      save_gl($s);
+          }
+	  return 1;
+    }
     my $db = authenticate(
             host   => $LedgerSMB::Sysconfig::db_host,
             port   => $LedgerSMB::Sysconfig::db_port,
@@ -159,8 +166,10 @@ sub get_invoice {
 	my $form = new_form($db);
 	$form->{id} = $id;
 	IS->retrieve_invoice({}, $form);
+	_inv_order_calc_taxes($form);
 	$form->{dbh}->commit;
         return {
+		taxes => $form->{taxbasis},
 		reference => $form->{invnumber},
 		postdate  => $form->{transdate},
 		description => $form->{description},
@@ -201,13 +210,26 @@ sub save_invoice {
 	return $form->{id};
 }
 
-get 'ar/:id' => sub { to_json(get_aa(param('id'), 'AR'))};
-get 'ap/:id' => sub { to_json(get_aa(param('id'), 'AP'))};
+get '/ar/:id' => sub { to_json(get_aa(param('id'), 'AR'))};
+get '/ap/:id' => sub { to_json(get_aa(param('id'), 'AP'))};
 
 my %vcmap = (
     'AR' => 'customer',
     'AP' => 'vendor',
 );
+
+sub _aa_line_from_internal {
+    my ($line) = @_;
+    return {
+        account_number => $_->{accno},
+        account_desc   => $_->{description},
+        reference      => $_->{source},
+        description    => $_->{memo},
+        postdate       => $_->{transdate},
+        amount         => $_->{amount}->bstr,
+    };
+}
+
 
 sub get_aa {
 	my ($id, $arap) = @_;
@@ -217,17 +239,32 @@ sub get_aa {
             dbname => param('company'),
 	);
 	my $form = new_form($db);
-	$form->{id} = $id;
+	if ( $arap eq 'AP' ) {
+ 	    $form->{ARAP} = 'AP';
+            $form->{vc}   = 'vendor';
+	}  elsif ( $arap eq 'AR' ) {
+            $form->{ARAP} = 'AR';
+            $form->{vc}   = 'customer';
+        }
+
 	$form->{arap} = lc($arap);
+	$form->{id} = $id;
 	$form->{ARAP} = uc($arap);
 	$form->{vc} = $vcmap{$arap};
-	AA->transaction({}, $form);
+ 	$form->create_links( module => $form->{ARAP},
+                             myconfig => {},
+	                          vc => $form->{vc},
+	                    billing => $form->{vc} eq 'customer');
+
 	$form->{dbh}->commit;
+	my @lines = map { _aa_line_from_internal($_) }
+	            map { @{$form->{acc_trans}->{$_}} } 
+	            keys %{$form->{acc_trans}};
         return {
 		reference => $form->{invnumber},
 		postdate  => $form->{transdate},
 		description => $form->{description},
-		lineitems => $form->{$form->{ARAP}},
+		lineitems => \@lines,
 		counterparty => $form->{"$form->{vc}number"},
 	};	
 }
@@ -350,6 +387,48 @@ sub new_form {
    $form->{dbh} = $db->connect({ AutoCommit => 0 });
    $form->{$_} = $struct->{$_} for keys %$struct; 
    return $form;
+}
+
+sub _inv_order_calc_taxes {
+    my ($form) = @_;
+    $form->{subtotal} = $form->{invsubtotal};
+    my $moneyplaces = $LedgerSMB::Company_Config::settings->{decimal_places};
+    for my $i (1 .. $form->{rowcount}){
+        my $discount_amount = $form->round_amount( $form->{"sellprice_$i"}
+                                      * ($form->{"discount_$i"} / 100),
+                                    $moneyplaces);
+        my $linetotal = $form->round_amount( $form->{"sellprice_$i"}
+                                      - $discount_amount,
+                                      $moneyplaces);
+        $linetotal = $form->round_amount( $linetotal * $form->{"qty_$i"},
+                                          $moneyplaces);
+        my @taxaccounts = Tax::init_taxes(
+            $form, $form->{"taxaccounts_$i"},
+            $form->{'taxaccounts'}
+        );
+        my $tax;
+        my $fxtax;
+        my $amount;
+        if ( $form->{taxincluded} ) {
+            $tax += $amount =
+              Tax::calculate_taxes( \@taxaccounts, $form, $linetotal, 1 );
+
+            $form->{"sellprice_$i"} -= $amount / $form->{"qty_$i"};
+        }
+        else {
+            $tax //= LedgerSMB::PGNumber->from_db(0);
+            $tax += $amount =
+              Tax::calculate_taxes( \@taxaccounts, $form, $linetotal, 0 );
+        }
+        for (@taxaccounts) {
+            $form->{tax_obj}{$_->account} = $_;
+            $form->{taxes}{$_->account} = 0 if ! $form->{taxes}{$_->account};
+            $form->{taxes}{$_->account} += $_->value;
+            if ($_->value){
+               $form->{taxbasis}{$_->account} += $linetotal;
+            }
+        }
+    }
 }
 
 

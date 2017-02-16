@@ -152,7 +152,7 @@ sub decode_invlines {
                 unitprice => $_->{sellprice},
            },
         },
-    }
+        }
     }
     @$lines ];
 }
@@ -182,6 +182,66 @@ sub save_invoice {
 
 get '/bill/:id' => sub {to_json(get_bill(param('id')))};
 post '/bill/new' => sub {redirect(save_bill(from_json(request->body)))};
+
+sub encode_bill_lines {
+    my ($lines) = @_;
+    return [ map { {
+        Amount => $_->{amount},
+	AccountBasedExpenseLineDetail => { 
+              name => $_->{account_desc}, 
+              value => $_->{account_number}, 
+        },
+    } } @$lines ];
+}
+
+sub decode_bill_lines {
+    my ($lines) = @_;
+    return [ map { {
+        account_number => $_->{AccountBasedExpenseLineDetail}->{AccountRef}->{value},
+        account_desc   => $_->{AccountBasedExpenseLineDetail}->{AccountRef}->{name},
+        amount         => $_->{Amount},
+    } } @$lines ];
+
+}
+
+sub encode_bill {
+    my ($ar) = @_;
+    return {
+        Id => $ar->{reference},
+        DueDate => $ar->{postdate},
+        Description => $ar->{description},
+        Line => encode_bill_lines($ar->{lineitems}),
+        CustomerRef => { value => $ar->{counterparty} }
+    };
+}
+
+sub decode_bill {
+    my ($bill) = $_;
+    return {
+                    reference => $bill->{Id},
+                    postdate  => $bill->{DueDate},
+                    description => $bill->{Description},
+                    lineitems => decode_bill_lines($bill->{Line}),
+                    counterparty => $bill->{CustomerRef}->{value},
+            };
+
+
+}
+
+sub get_bill {
+    my ($id) = @_;
+    return encode_bill(
+        App::LedgerSMB::Gateway::Internal::get_aa($id, 'AP')
+    );
+}
+
+sub save_bill {
+    my ($bill) = @_;
+    return App::LedgerSMB::Gateway::Internal::save_aa(
+        decode_bill($bill), 'AP'
+    );
+}
+
 get '/purchase/:id' => sub {to_json(get_purchase(param('id')))};
 post '/purchase/new' => sub {redirect(save_purchase(from_json(request->body)))};
 1;

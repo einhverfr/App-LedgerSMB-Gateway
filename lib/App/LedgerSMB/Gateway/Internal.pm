@@ -169,7 +169,7 @@ sub get_invoice {
 	_inv_order_calc_taxes($form);
 	$form->{dbh}->commit;
         return {
-		taxes => $form->{taxbasis},
+		taxes => $form->{taxes},
 		reference => $form->{invnumber},
 		postdate  => $form->{transdate},
 		description => $form->{description},
@@ -420,14 +420,20 @@ sub _inv_order_calc_taxes {
             $tax += $amount =
               Tax::calculate_taxes( \@taxaccounts, $form, $linetotal, 0 );
         }
+	my $taxes = {};
         for (@taxaccounts) {
-            $form->{tax_obj}{$_->account} = $_;
-            $form->{taxes}{$_->account} = 0 if ! $form->{taxes}{$_->account};
-            $form->{taxes}{$_->account} += $_->value;
+
+            
+	    $taxes->{total} ||= 0;
+            $taxes->{$_->account}->{rate} = $_->rate;
+            $taxes->{$_->account}->{taxes} = 0 if ! $form->{taxes}{$_->account};
+            $taxes->{$_->account}->{taxes} += $_->value;
+            $taxes->{total} += $_->value;
             if ($_->value){
-               $form->{taxbasis}{$_->account} += $linetotal;
+               $taxes->{$_->account}->{taxbasis} += $linetotal;
             }
         }
+	$form->{taxes} = $taxes
     }
 }
 

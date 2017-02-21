@@ -11,8 +11,9 @@ use Dancer::Plugin::Ajax;
 use LedgerSMB::App_State;
 use LedgerSMB::GL;
 use LedgerSMB::AA;
-use LedgerSMB::IS;
 use LedgerSMB::IR;
+use LedgerSMB::IS;
+use LedgerSMB::IC;
 use LedgerSMB::DBObject::Account;
 use LedgerSMB::Locale;
 use LedgerSMB::Form;
@@ -194,14 +195,12 @@ sub _convert_invoice_lines {
 
 post '/salesinvoice/new' => sub { redirect(save_gl(from_json(request->body))) };
 sub save_invoice {
-
+        my ($struct) = @_;
 	my $db = authenticate(
             host   => $LedgerSMB::Sysconfig::db_host,
             port   => $LedgerSMB::Sysconfig::db_port,
             dbname => param('company'),
 	);
-	my $body = request->body;
-	my $struct = from_json($body);
 	my $form = new_form($db, $struct);
 	local $LedgerSMB::App_State::DBH = $form->{dbh};;
 	local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
@@ -437,6 +436,72 @@ sub _inv_order_calc_taxes {
     }
 }
 
+get 'gns/:id' => sub { to_json(get_part(param('id'))) };
+post 'gns/new' => sub { redirect(save_part(from_json(request->body))) };
+
+sub get_part {
+        my ($id) = @_;
+	my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+	);
+	my $form = new_form($db, {id => $id});
+	local $LedgerSMB::App_State::DBH = $form->{dbh};;
+	local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+	IC->get_part({}, $form);
+	# TODO serialize
+	return form_to_part($form);
+}
+
+sub save_part {
+        my ($struct) = @_;
+	my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+	);
+	my $form = new_form($db, {});
+	local $LedgerSMB::App_State::DBH = $form->{dbh};;
+	local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+	return IC->save_part({}, part_to_form($struct, $form));
+}
+
+sub form_to_part {
+    my ($form) = @_;
+    my $type = 'overhead';
+    $type = 'service' if $form->{income_accno_id};
+    $type = 'part' if $form->{income_accno_id} and $form->{inventory_accno_id};
+    $type = 'assembly' if $form->{assembly};
+    return {
+        id => $form->{id},
+        description => $form->{description},
+        type => $type, 
+        account => { map { $_ => $form->{"${_}_accno_id"} }
+	             grep { $form->{"${_}_accno_id"} } qw(income accno expense)
+                   },	     
+        price => { sell => $form->{sellprice},
+                   cost => $form->{lastcost}, 
+                   list => $form->{listprice},
+                  },
+       
+    };
+       
+}
+
+sub part_to_form {
+    my ($part) = @_;
+    return {
+        sellprice => $part->{price}->{sell}, 
+        lastcost => $part->{price}->{cost},
+        listprice => $part->{price}->{list},
+        inventory_accno_id => $part->{account}->{income},
+        expense_accno_id => $part->{account}->{expense},
+        income_accno_id => $part->{account}->{income},
+        description => $part->{description},
+        id => $part->{id},
+    };
+}
 
 1;
 

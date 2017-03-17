@@ -5,6 +5,7 @@
 # Your application's name
 appname: "App::LedgerSMB::Gateway"
 
+port: 3030
 # The default layout to use for your application (located in
 # views/layouts/main.tt)
 layout: "main"

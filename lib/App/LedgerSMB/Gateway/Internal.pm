@@ -1,5 +1,6 @@
 package App::LedgerSMB::Gateway::Internal;
 use App::LedgerSMB::Auth qw(authenticate);
+#use lib "/home/ledgersmb/LedgerSMB/lib";
 use lib "/opt/ledgersmb/";
 use App::LedgerSMB::Gateway::Internal::Locale;
 use LedgerSMB::Sysconfig;

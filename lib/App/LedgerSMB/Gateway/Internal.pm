@@ -1,10 +1,12 @@
 package App::LedgerSMB::Gateway::Internal;
 use App::LedgerSMB::Auth qw(authenticate);
 use lib "/home/chris/ledgersmb";
+use Try::Tiny;
 use App::LedgerSMB::Gateway::Internal::Locale;
 use LedgerSMB::Sysconfig;
 use Log::Log4perl;
 use Dancer ':syntax';
+use Dancer::HTTP;
 use Dancer::Serializer;
 use Dancer::Response;
 use Dancer::Plugin::Ajax;
@@ -86,6 +88,7 @@ sub get_gl {
     my $form = new_form($db);
     $form->{id} = $id;
     GL->transaction({}, $form);
+    status 'not_found' unless $form->{reference};
     $form->{dbh}->rollback;
     return {
 		reference => $form->{reference},
@@ -128,7 +131,11 @@ sub save_gl {
     local $LedgerSMB::App_State::DBH = $form->{dbh};;
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
     _unfold_gl_lines($form);
-    GL->post_transaction({}, $form, $locale);
+    try {
+        GL->post_transaction({}, $form, $locale);
+    } catch {
+        Dancer::HTTP->status(400);
+    }
     $form->{dbh}->commit;
     return $form->{id};
 }

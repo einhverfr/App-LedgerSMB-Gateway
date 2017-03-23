@@ -38,8 +38,17 @@ sub _je_lines_from_internal {
     }, @$lineref];
 }
 
+sub unwrap_qbxml{
+    my ($struct, $item) = @_;
+    for my $i (qw(QBXML QBXMLMsgsRs), @$item){
+        $struct = $struct->{$i} if $struct->{$i}; 
+    }
+    return $struct;
+}
+
 sub journalentry_to_internal {
     my ($je) = @_;
+    $je = unwrap_qbxml($je, ['JournalEntryQueryRs', 'JournalEntryRef']);
     return {
        id => $je->{Id},
        reference => $je->{DocNumber},
@@ -51,6 +60,7 @@ sub journalentry_to_internal {
 
 sub internal_to_journal_entry {
     my $internal = shift;
+
     return {
         Adjustment => JSON::false(), # lsmb does not support
         domain => 'QB0', # hard wired

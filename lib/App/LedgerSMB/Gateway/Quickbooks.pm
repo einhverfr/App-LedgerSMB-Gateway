@@ -253,6 +253,57 @@ sub save_bill {
 }
 
 get '/purchase/:id' => sub {to_json(get_purchase(param('id')))};
-post '/purchase/new' => sub {redirect(save_purchase(from_json(request->body)))};
-1;
 
+post '/purchase/new' => sub {redirect(save_purchase(from_json(request->body)))};
+
+my @acctypes = qw(Asset Liability Equity Income Expense);
+
+sub encode_account {
+    my ($in) = @_;
+    return {
+	ListID => $in->{account_number},
+        Name => $in->{description},
+        FullName => $in->{description},
+        AccountType => $in->{category},
+    };
+}
+sub decode_account {
+    my ($in) = $_;
+    my $type = $in->{account_type};
+    my $category;
+    for @acctypes {
+        $category = $_ if $type =~ /$category/i;
+    }
+    unless ($category) {
+        status '400';
+        return {};
+    }
+    return {
+	account_number=> $in->{ListID},
+        description => $in->{FullName},
+        category => $category,
+    };
+}
+
+sub get_account {
+    my ($id) = @_;
+    return encode_account(
+        App::LedgerSMB::Gateway::Internal::get_account_by_accno($id)
+    );
+}
+
+sub save_account {
+    my ($account) = @_;
+    $account = unwrap_qbxml($account, 'AccountQueryRs', 'AccountRet'); 
+    if (ref $account =~ /Array/i){
+        save_account($_) for @$account;
+    }
+    return App::LedgerSMB::Gateway::Internal::save_account(
+        decode_account($account), 
+    );
+}
+
+get '/account/:id' => sub {to_json(get_account(param('id')))};
+post '/account/new' => sub {redirect(save_account(from_json(request->body)))};
+
+1;

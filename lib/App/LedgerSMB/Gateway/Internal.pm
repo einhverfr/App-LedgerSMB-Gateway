@@ -287,8 +287,8 @@ sub get_payment {
 sub save_payment {
 }
 
-get 'account/:id' => sub { to_json(get_account(param('id'))) };
-post 'account/new' => sub { redirect(save_account(from_json(request->body))) };
+get 'coa/:id' => sub { to_json(get_account(param('id'))) };
+post 'coa/new' => sub { redirect(save_account(from_json(request->body))) };
 
 sub get_account {
     my ($id) = @_;
@@ -300,6 +300,7 @@ sub get_account {
     local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 0 });
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
     my ($account) = LedgerSMB::DBObject::Account->get($id);
+    status 'not_found' unless $account->{category};
     return _from_account($account);
 }
 
@@ -344,8 +345,11 @@ sub save_account {
     );
     local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 0 });
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    try {
     my $account = LedgerSMB::DBObject::Account->new(base => _to_account($in_account));
     $account->save;
+    } catch {
+    }
     return $account->{id};
 }
 

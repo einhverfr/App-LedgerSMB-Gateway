@@ -514,6 +514,14 @@ sub part_to_form {
     };
 }
 
+sub account_get_by_accno {
+    my ($accno) = @_;
+    my $acinterface = LedgerSMB::DBObject::Account->new(base => $struct);
+    my %account = map {$_->{accno} => $_ } $acinterface->list();
+    return _from_account($account{$accno});
+}
+
+
 1;
 
 

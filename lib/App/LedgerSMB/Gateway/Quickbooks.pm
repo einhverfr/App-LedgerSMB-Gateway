@@ -288,7 +288,7 @@ sub decode_account {
 sub get_account {
     my ($id) = @_;
     return encode_account(
-        App::LedgerSMB::Gateway::Internal::get_account_by_accno($id)
+        App::LedgerSMB::Gateway::Internal::account_get_by_accno($id)
     );
 }
 

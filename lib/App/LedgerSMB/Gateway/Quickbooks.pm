@@ -18,9 +18,9 @@ sub je_amount_sign {
 sub _je_lines_to_internal {
     my ($lineref) = @_;
     return [ map {
-             account_number => $_->{AccountRef}->{value},
-             account_description => $_->{AccountRef}->{name},
-             amount => $_->{Amount} * je_amount_sign($_->{JournalEntryLineDetail}->{PostingType}),
+             account_number => $_->{JournalEntryLineDetails}->{AccountRef}->{value},
+             account_description => $_->{JournalEntryLineDetails}->{AccountRef}->{name},
+             amount => $_->{Amount} * je_amount_sign($_->{JournalEntryLineDetails}->{PostingType}),
              reference => $_->{source},
            description => $_->{memo},
     }, @$lineref ];
@@ -41,7 +41,7 @@ sub _je_lines_from_internal {
     }, @$lineref];
 }
 
-sub journalentry_to_internal {
+sub journal_entry_to_internal {
     my ($je) = @_;
     return {
        id => $je->{Id},

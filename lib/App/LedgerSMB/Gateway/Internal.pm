@@ -2,10 +2,12 @@ package App::LedgerSMB::Gateway::Internal;
 use App::LedgerSMB::Auth qw(authenticate);
 #use lib "/home/ledgersmb/LedgerSMB/lib";
 use lib "/opt/ledgersmb/";
+use Try::Tiny;
 use App::LedgerSMB::Gateway::Internal::Locale;
 use LedgerSMB::Sysconfig;
 use Log::Log4perl;
 use Dancer ':syntax';
+use Dancer::HTTP;
 use Dancer::Serializer;
 use Dancer::Response;
 use Dancer::Plugin::Ajax;
@@ -89,6 +91,7 @@ sub get_gl {
     my $form = new_form($db);
     $form->{id} = $id;
     GL->transaction({}, $form);
+    status 'not_found' unless $form->{reference};
     $form->{dbh}->rollback;
     return {
 		reference => $form->{reference},
@@ -137,7 +140,11 @@ sub save_gl {
     local $LedgerSMB::App_State::DBH = $form->{dbh};;
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
     _unfold_gl_lines($form);
-    GL->post_transaction({}, $form, $locale);
+    try {
+        GL->post_transaction({}, $form, $locale);
+    } catch {
+        Dancer::HTTP->status(400);
+    }
     $form->{dbh}->commit;
     return $form->{id};
 }
@@ -281,8 +288,8 @@ sub get_payment {
 sub save_payment {
 }
 
-get 'account/:id' => sub { to_json(get_account(param('id'))) };
-post 'account/new' => sub { redirect(save_account(from_json(request->body))) };
+get 'coa/:id' => sub { to_json(get_account(param('id'))) };
+post 'coa/new' => sub { redirect(save_account(from_json(request->body))) };
 
 sub get_account {
     my ($id) = @_;
@@ -294,6 +301,7 @@ sub get_account {
     local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 0 });
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
     my ($account) = LedgerSMB::DBObject::Account->get($id);
+    status 'not_found' unless $account->{category};
     return _from_account($account);
 }
 
@@ -338,8 +346,11 @@ sub save_account {
     );
     local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 0 });
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    try {
     my $account = LedgerSMB::DBObject::Account->new(base => _to_account($in_account));
     $account->save;
+    } catch {
+    }
     return $account->{id};
 }
 
@@ -503,6 +514,14 @@ sub part_to_form {
         id => $part->{id},
     };
 }
+
+sub account_get_by_accno {
+    my ($accno) = @_;
+    my $acinterface = LedgerSMB::DBObject::Account->new(base => $struct);
+    my %account = map {$_->{accno} => $_ } $acinterface->list();
+    return _from_account($account{$accno});
+}
+
 
 1;
 

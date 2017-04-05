@@ -144,7 +144,7 @@ sub save_gl {
         GL->post_transaction({}, $form, $locale);
     } catch {
         Dancer::HTTP->status(400);
-    }
+    };
     $form->{dbh}->commit;
     return $form->{id};
 }
@@ -317,6 +317,7 @@ my $rcategory = { map { $category->{$_} => $_ } keys %$category };
 
 sub _from_account {
     my ($lsmb_act) = @_;
+    no warnings;
     return {
         id => $lsmb_act->{id},
 	account_number => $lsmb_act->{accno},
@@ -327,18 +328,20 @@ sub _from_account {
 }
 
 sub _to_account {
-    my ($neutral) = $_;
+    my ($neutral) = @_;
+    no warnings; 
     return {
         id => $neutral->{id},
-        accno => $neutral->{accno},
+        accno => $neutral->{account_number},
         description => $neutral->{description},
-        category => $rcategory->{$neutral->{account_type}},
+        category => $rcategory->{$neutral->{category}},
         
     };
 }
 
 sub save_account {
-    my ($in_account) = ($_);
+    my ($in_account) = @_;
+    return unless $in_account;
     my $db = authenticate(
             host   => $LedgerSMB::Sysconfig::db_host,
             port   => $LedgerSMB::Sysconfig::db_port,
@@ -346,11 +349,10 @@ sub save_account {
     );
     local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 0 });
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
-    try {
     my $account = LedgerSMB::DBObject::Account->new(base => _to_account($in_account));
     $account->save;
-    } catch {
-    }
+
+    $LedgerSMB::App_State::DBH->commit;
     return $account->{id};
 }
 
@@ -517,7 +519,15 @@ sub part_to_form {
 
 sub account_get_by_accno {
     my ($accno) = @_;
-    my $acinterface = LedgerSMB::DBObject::Account->new(base => $struct);
+	my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+	);
+	my $form = new_form($db, {});
+	local $LedgerSMB::App_State::DBH = $form->{dbh};;
+	local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    my $acinterface = LedgerSMB::DBObject::Account->new(base => {});
     my %account = map {$_->{accno} => $_ } $acinterface->list();
     return _from_account($account{$accno});
 }

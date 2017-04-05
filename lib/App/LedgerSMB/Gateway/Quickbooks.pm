@@ -2,6 +2,7 @@
 package App::LedgerSMB::Gateway::Quickbooks;
 use App::LedgerSMB::Gateway::Internal;
 use Dancer ':syntax';
+use Carp;
 
 use strict;
 use warnings;
@@ -43,13 +44,13 @@ sub _je_lines_from_internal {
 
 sub unwrap_qbxml{
     my ($struct, $item) = @_;
-    for my $i (qw(QBXML QBXMLMsgsRs), @$item){
+    for my $i ((qw(QBXML QBXMLMsgsRs), @$item)){
         $struct = $struct->{$i} if $struct->{$i}; 
     }
     return $struct;
 }
 
-sub journalentry_to_internal {
+sub journal_entry_to_internal {
     my ($je) = @_;
     $je = unwrap_qbxml($je, ['JournalEntryQueryRs', 'JournalEntryRef']);
     return {
@@ -92,7 +93,7 @@ sub je_save {
 }
 
 get '/journal_entry/:id' => sub {to_json(get_je(param('id')))};
-post '/journal_entry/new' => sub {redirect(je_save(from_json(request->body)))};
+post '/journal_entry/new' => sub {warning(request->body); redirect(je_save(from_json(request->body)))};
 
 get '/invoice/:id' => sub {to_json(get_invoice(param('id')))};
 post '/invoice/new' => sub {redirect(save_invoice(from_json(request->body)))};
@@ -259,31 +260,46 @@ get '/purchase/:id' => sub {to_json(get_purchase(param('id')))};
 post '/purchase/new' => sub {redirect(save_purchase(from_json(request->body)))};
 
 my @acctypes = qw(Asset Liability Equity Income Expense);
+my %category_map = (
+    Bank => 'Asset',
+    AccountsReceivable => 'Asset',
+    AccountsPayable => 'Liability',
+    CreditCard => 'Liability',
+    CostOfGoodsSold => 'Expense',
+    NonPosting => 'Equity',
+);
 
 sub encode_account {
     my ($in) = @_;
     return {
-	ListID => $in->{account_number},
+	AccountNumber => $in->{account_number},
         Name => $in->{description},
         FullName => $in->{description},
         AccountType => $in->{category},
     };
 }
+
 sub decode_account {
     my ($in) = $_;
-    my $type = $in->{account_type};
+    $in->{AccountNumber} //= $in->{ListID};
+    my $type = $in->{AccountType};
     my $category;
-    for @acctypes {
-        $category = $_ if $type =~ /$category/i;
+    for (@acctypes) {
+        $category = $_ if $type =~ /$_/i;
     }
+    $category ||= $category_map{$type};
     unless ($category) {
         status '400';
-        return {};
+        die 'Unknown category ' . $type;
     }
+    my ($account) = App::LedgerSMB::Gateway::Internal::account_get_by_accno($in->{AccountNumber});
+    my %extra;
+    $extra{id} = $account->{id} if $account;
     return {
-	account_number=> $in->{ListID},
+	account_number=> $in->{AccountNumber},
         description => $in->{FullName},
         category => $category,
+        %extra
     };
 }
 
@@ -296,12 +312,15 @@ sub get_account {
 
 sub save_account {
     my ($account) = @_;
-    $account = unwrap_qbxml($account, 'AccountQueryRs', 'AccountRet'); 
-    if (ref $account =~ /Array/i){
-        save_account($_) for @$account;
+    $account = unwrap_qbxml($account, ['AccountQueryRs', 'AccountRet']); 
+    if (ref $account eq 'ARRAY'){
+        my $ret;
+        $ret = save_account($_) for @$account;
+        return $ret;
     }
-    return App::LedgerSMB::Gateway::Internal::save_account(
-        decode_account($account), 
+    my $decoded = decode_account($account);
+    App::LedgerSMB::Gateway::Internal::save_account(
+        $decoded
     );
 }
 

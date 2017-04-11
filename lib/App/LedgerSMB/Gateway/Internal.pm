@@ -368,6 +368,10 @@ sub get_counterparty {
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
     my $entity =
          LedgerSMB::Entity::Company->get_by_cc($control_code);
+    if (!$entity){
+        status('not_found');
+        return {};
+    }
     $entity ||=  LedgerSMB::Entity::Person->get_by_cc($control_code);
     $entity->{credit_accounts} = [ LedgerSMB::Entity::Credit_Account->list_for_entity(
                      $entity->{id},
@@ -391,6 +395,8 @@ sub get_counterparty {
 }
 
 sub save_counterparty {
+	# todo, but too complex currently.  May need to break off into separate
+	# end points
 }
 
 sub new_form {
@@ -464,7 +470,7 @@ sub get_part {
 	local $LedgerSMB::App_State::DBH = $form->{dbh};;
 	local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
 	IC->get_part({}, $form);
-	# TODO serialize
+        status 'not_found' unless $form->{reference};
 	return form_to_part($form);
 }
 
@@ -478,7 +484,14 @@ sub save_part {
 	my $form = new_form($db, {});
 	local $LedgerSMB::App_State::DBH = $form->{dbh};;
 	local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
-	return IC->save_part({}, part_to_form($struct, $form));
+	return try {
+		IC->save_part({}, part_to_form($struct, $form);
+		return $struct;
+	} catch {
+		status(400);
+		warning($_);
+		return { error => $_ };
+	};
 }
 
 sub form_to_part {

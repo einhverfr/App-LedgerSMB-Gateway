@@ -1,7 +1,9 @@
 
 package App::LedgerSMB::Gateway::Quickbooks;
 use App::LedgerSMB::Gateway::Internal;
+use App::LedgerSMB::Auth qw(authenticate);
 use Dancer ':syntax';
+use LedgerSMB::Setting;
 use Carp;
 
 use strict;
@@ -12,19 +14,27 @@ our $VERSION = '0.1';
 
 sub je_amount_sign {
     my ($type) = @_;
+    warning("Sign for $type requested");
     return -1 if $type eq 'Debit';
     return 1;
+}
+
+sub _je_listid_to_accno {
+    my ($listid) = @_;
+    return LedgerSMB::Setting->get("qbgw-account-$listid");
 }
 
 sub _je_lines_to_internal {
     my ($lineref) = @_;
     return [ map {
-             account_number => $_->{JournalEntryLineDetails}->{AccountRef}->{value},
+     my $accno = $_->{AccountRef}->{value} // _je_listid_to_accno($_->{AccountRef}->{ListID});
+     {
+             account_number => $accno,
              account_description => $_->{JournalEntryLineDetails}->{AccountRef}->{name},
              amount => $_->{Amount} * je_amount_sign($_->{JournalEntryLineDetails}->{PostingType}),
              reference => $_->{source},
            description => $_->{memo},
-    }, @$lineref ];
+    }} @$lineref ];
 }
 
 sub _je_lines_from_internal {
@@ -52,14 +62,24 @@ sub unwrap_qbxml{
 
 sub journal_entry_to_internal {
     my ($je) = @_;
-    $je = unwrap_qbxml($je, ['JournalEntryQueryRs', 'JournalEntryRef']);
-    return {
+    my $line = $je->{Line};
+    unless ($line) { # desktop
+        $je->{JournalCreditLine} = [$je->{JournalCreditLine}] unless ref $je->{JournalCreditLine} eq 'ARRAY';
+        $je->{JournalDebitLine} = [$je->{JournalDebitLine}] unless ref $je->{JournalDebitLine} eq 'ARRAY';
+        $line = [ (map {{%$_, JournalEntryLineDetails => { %$_, PostingType => 'Credit'}}} (@{$je->{JournalCreditLine}})),
+                  (map {{%$_, JournalEntryLineDetails => { %$_, PostingType => 'Debit'}}} (@{$je->{JournalDebitLine}}))];
+    
+    }
+    my $newje = {
        id => $je->{Id},
        reference => $je->{DocNumber},
        postdate => $je->{TxnDate},
-       lineitems => _je_lines_to_internal($je->{Line}),
+       lineitems => _je_lines_to_internal($line),
         
     };
+    use Data::Dumper;
+    warning(Dumper($newje));
+    return ($newje);
 }
 
 sub internal_to_journal_entry {
@@ -87,13 +107,23 @@ sub get_je {
 
 sub je_save {
     my ($je) = @_;
-    return App::LedgerSMB::Gateway::Internal::save_gl(
-        journal_entry_to_internal($je)
+    $je = unwrap_qbxml($je, ['JournalEntryQueryRs', 'JournalEntryRet']);
+    if (ref $je eq 'ARRAY'){
+        je_save($_) for @$je;
+        return;
+    }
+    my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
     );
+    local $LedgerSMB::App_State::DBH = $db->connect({ AutoCommit => 1 });
+    local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    return App::LedgerSMB::Gateway::Internal::save_gl( journal_entry_to_internal($je));
 }
 
 get '/journal_entry/:id' => sub {to_json(get_je(param('id')))};
-post '/journal_entry/new' => sub {warning(request->body); redirect(je_save(from_json(request->body)))};
+post '/journal_entry/new' => sub {warning(request->body); je_save(from_json(request->body)); to_json({success => 1})};
 
 get '/invoice/:id' => sub {to_json(get_invoice(param('id')))};
 post '/invoice/new' => sub {redirect(save_invoice(from_json(request->body)))};
@@ -292,6 +322,7 @@ sub decode_account {
         status '400';
         die 'Unknown category ' . $type;
     }
+    LedgerSMB::Setting->set("qbgw-account-$in->{ListID}", $in->{AccountNumber});
     my ($account) = App::LedgerSMB::Gateway::Internal::account_get_by_accno($in->{AccountNumber});
     my %extra;
     $extra{id} = $account->{id} if $account;
@@ -312,6 +343,13 @@ sub get_account {
 
 sub save_account {
     my ($account) = @_;
+    my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+    );
+    local $LedgerSMB::App_State::DBH = $db->connect({ AutoCommit => 1 });
+    local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
     $account = unwrap_qbxml($account, ['AccountQueryRs', 'AccountRet']); 
     if (ref $account eq 'ARRAY'){
         my $ret;
@@ -325,6 +363,6 @@ sub save_account {
 }
 
 get '/account/:id' => sub {to_json(get_account(param('id')))};
-post '/account/new' => sub {redirect(save_account(from_json(request->body)))};
+post '/account/new' => sub {warning(request->body); save_account(from_json(request->body)); to_json({success => 1})};
 
 1;

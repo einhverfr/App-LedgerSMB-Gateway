@@ -74,6 +74,6 @@ sub invoice_save {
 sub invoice_to_si {
 }
 
-post '/sales/new' => sub {warning(request->body); bill_save(from_json(request->body)); to_json({success => 1})};
+post '/purchase/new' => sub {warning(request->body); bill_save(from_json(request->body)); to_json({success => 1})};
 
-post '/purchase/new' => sub {warning(request->body); invoice_save(from_json(request->body)); to_json({success => 1})};
+post '/sales/new' => sub {warning(request->body); invoice_save(from_json(request->body)); to_json({success => 1})};

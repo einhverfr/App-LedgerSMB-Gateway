@@ -43,14 +43,6 @@ sub eca_save {
     return $eca->{id};
 }
 
-sub get_part{
-    my ($line) = @_;
-    my $sql = "SELECT * FROM part WHERE partnumber = ?";
-    my $sth = LedgerSMB::App_State::DBH->prepare($sql);
-    $sth->execute($line->{ListID});
-    return $sth->fetchrow_hashref('NAME_lc');
-}
-
 sub get_accounts_config{
     my $setname = 'GW-qbaccounts';
     my $config_json = LedgerSMB::Setting->get($setname);
@@ -116,9 +108,22 @@ sub get_accounts_config{
     return $map;
 }
 
+sub get_part{
+    my ($line) = @_;
+    my $sql = "SELECT * FROM parts WHERE partnumber = ?";
+    my $sth = LedgerSMB::App_State::DBH->prepare($sql);
+    warning($line->{ItemRef}->{ListID} . " as partnumber");
+    $sth->execute($line->{ItemRef}->{ListID});
+    warning($sth->rows);
+    return $sth->fetchrow_hashref('NAME_lc');
+}
+
 sub parts_save {
     my ($line) = @_;
     my $part = get_part($line);
+    warning($line->{ItemRef}->{ListID});
+    warning("$part " . to_json($line));
+    $line->{Quantity} //= 1;
     if ($part){
         return {
            id => $part->{id},
@@ -129,7 +134,7 @@ sub parts_save {
     } else {
         my $config = get_accounts_config();
         my $part = {
-           partnumber => $line->{ListID},
+           partnumber => $line->{ItemRef}->{ListID},
            description => $line->{Desc}, 
            IC_income => '4500-lsmbinv',
            IC_expense => '5500-lsmbinv',
@@ -157,29 +162,32 @@ sub bill_save {
     );
     local $LedgerSMB::App_State::DBH = $db->connect({ AutoCommit => 1 });
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
-    $struct = App::LedgerSMB::Gateway::Quickbooks::unwrap_qbxml($struct, ['BillQueryRs', 'BillQueryRet']);
+    $struct = App::LedgerSMB::Gateway::Quickbooks::unwrap_qbxml($struct, ['BillQueryRs', 'BillRet']);
     if (ref $struct eq 'ARRAY') {
         bill_save($_) for @$struct;
         return 'success';
     }
-    $struct->{vendor_id} = eca_save(1, $struct->{VendorRef});
-    $_->{part_id} = parts_save($_) for @{$struct->{ItemLineRet}};
+    $struct->{vendor_id} = eca_save(1, $struct->{"VendorRef"});
     return save_vendorinvoice(bill_to_vi($struct));
 }
 
 sub bill_to_vi {
     my ($struct) = @_;
+    my $curr = 'USD';
     my $initial = {
         vc => 'vendor',
-        transdate => $struct->{TxnDate},
-        currency => 'USD',
+        invnumber => $struct->{TxnNumber},
         exchangerate => 1,
 	arap => 'ap',
 	ARAP => 'AP',
         vendor_id => $struct->{vendor_id},
-        AP => '1100-lsmbar'
+        AP => '1100-lsmbar',
+        transdate => $struct->{TxnDate},
+        duedate => $struct->{DueDate},
+        currency => $curr,
+        intnotes => to_json($struct),
     };
-    my $rowcount = 0;
+    my $rowcount = 1;
     $struct->{InvoiceLineRet} = [$struct->{InvoiceLineRet}] if ref $struct->{InvoiceLineRet} eq 'HASH';
     for (@{$struct->{InvoiceLineRet}}){
         my $linestruct = parts_save($_);
@@ -187,6 +195,23 @@ sub bill_to_vi {
 	++$rowcount;
     }
     $initial->{rowcount} = $rowcount;
+    $struct->{linkedTxn} = [$struct->{linkedTxn}] if ref $struct->{linkedTxn} eq 'HASH';
+    my $paidrows = 0;
+    try {
+    for (grep  { $_->{TxnType} eq 'ReceivePayment'} @{$struct->{LinkedTxn}}){
+       my $amount = $_->{Amount} * -1;
+       my $linestruct = {
+         AR_Paid => '1100-lsmbpay',
+         paid => $amount,
+         datepaid => $_->{TxnDate},
+         source => $_->{RefNumber},
+       };
+        $initial->{"${_}_$paidrows"} = $linestruct->{$_} for keys %$linestruct;
+	++$paidrows;
+        
+    }
+    };
+    $initial->{paidaccounts} = $paidrows;
     return $initial;
 }
 
@@ -232,6 +257,7 @@ sub save_salesinvoice {
 
 sub invoice_to_si {
     my ($struct) = @_;
+    my $curr = 'USD';
     my $initial = {
         vc => 'customer',
         transdate => $struct->{TxnDate},
@@ -240,16 +266,35 @@ sub invoice_to_si {
 	arap => 'ar',
 	ARAP => 'AR',
 	customer_id => $struct->{customer_id},
-        AR => '1100-lsmbar'
+        AR => '1100-lsmbar',
+        duedate => $struct->{DueDate},
+        currency => $curr,
+        intnotes => to_json($struct),
     };
-    my $rowcount = 0;
+    my $rowcount = 1;
     $struct->{InvoiceLineRet} = [$struct->{InvoiceLineRet}] if ref $struct->{InvoiceLineRet} eq 'HASH';
     for (@{$struct->{InvoiceLineRet}}){
         my $linestruct = parts_save($_);
         $initial->{"${_}_$rowcount"} = $linestruct->{$_} for keys %$linestruct;
 	++$rowcount;
     }
+    my $paidrows = 1;
+    $struct->{linkedTxn} = [$struct->{linkedTxn}] if ref $struct->{linkedTxn} eq 'HASH';
+    try {
+    for (grep  { $_->{TxnType} eq 'ReceivePayment'} @{$struct->{linkedTxn}}){
+       my $linestruct = {
+         AR_Paid => '1100-lsmbpay',
+         paid => $_->{Amount} * -1,
+         datepaid => $_->{TxnDate},
+         source => $_->{RefNumber},
+       };
+        $initial->{"${_}_$paidrows"} = $linestruct->{$_} for keys %$linestruct;
+	++$paidrows;
+        
+    }
+    };
     $initial->{rowcount} = $rowcount;
+    $initial->{paidaccounts} = $paidrows;
     return $initial;
 }
 

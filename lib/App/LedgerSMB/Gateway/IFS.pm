@@ -43,6 +43,28 @@ sub eca_save {
     return $eca->{id};
 }
 
+sub get_invoice_lineitems {
+    my ($struct) = @_;
+    my @lines = ();
+    my $lineref = $struct->{InvoiceLineRet};
+    my $innerref;
+    $lineref = [$lineref] if ref $lineref eq 'HASH';
+    @lines = @$lineref if ref $lineref;
+    
+    $lineref = $struct->{InvoiceLineGroupRet};
+    $lineref = [$lineref] if ref $lineref eq 'HASH';
+    $lineref = [] unless ref $lineref;
+
+    for (@$lineref){
+        $innerref = $_->{InvoiceLineRet};
+        $innerref = [$lineref] if ref $innerref eq 'HASH';
+        $innerref = [] unless ref $innerref ;
+        push @lines, @$innerref;
+        
+    }
+    return @lines;
+}
+
 sub get_accounts_config{
     my $setname = 'GW-qbaccounts';
     my $config_json = LedgerSMB::Setting->get($setname);
@@ -110,6 +132,7 @@ sub get_accounts_config{
 
 sub get_part{
     my ($line) = @_;
+    return unless ref $line eq 'HASH';
     my $sql = "SELECT * FROM parts WHERE partnumber = ?";
     my $sth = LedgerSMB::App_State::DBH->prepare($sql);
     warning($line->{ItemRef}->{ListID} . " as partnumber");
@@ -120,6 +143,7 @@ sub get_part{
 
 sub parts_save {
     my ($line) = @_;
+    return unless ref $line eq 'HASH';
     my $part = get_part($line);
     warning($line->{ItemRef}->{ListID});
     warning("$part " . to_json($line));
@@ -188,8 +212,8 @@ sub bill_to_vi {
         intnotes => to_json($struct),
     };
     my $rowcount = 1;
-    $struct->{InvoiceLineRet} = [$struct->{InvoiceLineRet}] if ref $struct->{InvoiceLineRet} eq 'HASH';
-    for (@{$struct->{InvoiceLineRet}}){
+    my @lines = get_invoice_lineitems($struct);
+    for (@lines){
         my $linestruct = parts_save($_);
         $initial->{"${_}_$rowcount"} = $linestruct->{$_} for keys %$linestruct;
 	++$rowcount;
@@ -273,7 +297,8 @@ sub invoice_to_si {
     };
     my $rowcount = 1;
     $struct->{InvoiceLineRet} = [$struct->{InvoiceLineRet}] if ref $struct->{InvoiceLineRet} eq 'HASH';
-    for (@{$struct->{InvoiceLineRet}}){
+    my @lines = get_invoice_lineitems($struct);
+    for (@lines){
         my $linestruct = parts_save($_);
         $initial->{"${_}_$rowcount"} = $linestruct->{$_} for keys %$linestruct;
 	++$rowcount;

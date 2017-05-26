@@ -402,9 +402,12 @@ sub save_counterparty {
 sub new_form {
    my ($db, $struct) = @_;
    $struct ||= {};
-   my $form = bless {}, 'Form';
-   $form->{dbh} = $db->connect({ AutoCommit => 0 });
-   $form->{$_} = $struct->{$_} for keys %$struct; 
+   my $form = bless { %$struct }, 'Form';
+   if ($db){
+       $form->{dbh} = $db->connect({ AutoCommit => 0 });
+   } else {
+       $form->{dbh} = $LedgerSMB::App_State::DBH;
+   }
    return $form;
 }
 
@@ -484,14 +487,16 @@ sub save_part {
 	my $form = new_form($db, {});
 	local $LedgerSMB::App_State::DBH = $form->{dbh};;
 	local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
-	return try {
-		IC->save_part({}, part_to_form($struct, $form);
-		return $struct;
+	my $ret = {};
+        try {
+		IC->save_part({}, part_to_form($struct, $form));
+		$ret = $struct;
 	} catch {
 		status(400);
 		warning($_);
-		return { error => $_ };
+		$ret = { error => $_ };
 	};
+        return $ret;
 }
 
 sub form_to_part {

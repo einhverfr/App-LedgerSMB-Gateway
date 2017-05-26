@@ -285,10 +285,6 @@ sub save_bill {
     );
 }
 
-get '/purchase/:id' => sub {to_json(get_purchase(param('id')))};
-
-post '/purchase/new' => sub {redirect(save_purchase(from_json(request->body)))};
-
 my @acctypes = qw(Asset Liability Equity Income Expense);
 my %category_map = (
     Bank => 'Asset',

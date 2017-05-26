@@ -29,4 +29,4 @@ template: "simple"
 
 # For session support enable the following line and see Dancer::Session
 # session: "YAML"
-
+logger_format: %T %m  [%{accept_type}h]

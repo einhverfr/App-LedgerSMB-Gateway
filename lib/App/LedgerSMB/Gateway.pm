@@ -3,6 +3,7 @@ use App::LedgerSMB::Auth qw(authenticate);
 use App::LedgerSMB::Gateway::Internal;
 use App::LedgerSMB::Gateway::Quickbooks;
 use App::LedgerSMB::Gateway::IFS;
+use App::LedgerSMB::Gateway::Internal::Reports;
 use JSON;
 
 our $VERSION = '0.1';

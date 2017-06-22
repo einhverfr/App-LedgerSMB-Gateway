@@ -62,6 +62,7 @@ sub get_invoice_lineitems {
         push @lines, @$innerref;
         
     }
+    @lines = map {ref $_ eq 'ARRAY' ? @$_ : $_ } @lines;
     return @lines;
 }
 
@@ -132,20 +133,27 @@ sub get_accounts_config{
 
 sub get_part{
     my ($line) = @_;
-    return unless ref $line eq 'HASH';
+    my $listid;
+    $listid = $line->{ItemRef}->{ListID} if exists $line->{ItemRef};
+    $listid //= $line->{ClassRef}->{ListID};
     my $sql = "SELECT * FROM parts WHERE partnumber = ?";
     my $sth = LedgerSMB::App_State::DBH->prepare($sql);
-    warning($line->{ItemRef}->{ListID} . " as partnumber");
-    $sth->execute($line->{ItemRef}->{ListID});
+    warning($listid . " as partnumber");
+    $sth->execute($listid);
     warning($sth->rows);
     return $sth->fetchrow_hashref('NAME_lc');
 }
 
 sub parts_save {
     my ($line) = @_;
-    return unless ref $line eq 'HASH';
+    unless (ref $line eq 'HASH'){
+        warning(to_json($line)) if ref $line;
+        warning("bad line: $line");
+        return;
+    }
+    my $listid;
+
     my $part = get_part($line);
-    warning($line->{ItemRef}->{ListID});
     warning("$part " . to_json($line));
     $line->{Quantity} //= 1;
     if ($part){
@@ -157,17 +165,32 @@ sub parts_save {
 	};
     } else {
         my $config = get_accounts_config();
-        my $part = {
-           partnumber => $line->{ItemRef}->{ListID},
-           description => $line->{Desc}, 
-           IC_income => '4500-lsmbinv',
-           IC_expense => '5500-lsmbinv',
-	   IC_inventory => '1500-lsmbinv',
-           sellprice => $line->{Rate},
-           dbh => $LedgerSMB::App_State::DBH,
-        };
+        my $part;
+        if (!exists $line->{ItemRef}){
+            $part = {
+               partnumber => $line->{ClassRef}->{ListID},
+               description => $line->{Desc}, 
+               IC_income => '4500-lsmbinv',
+               IC_expense => '5500-lsmbinv',
+               sellprice => 1,
+               dbh => $LedgerSMB::App_State::DBH,
+            };
+        } else {
+            my $part = {
+               partnumber => $line->{ItemRef}->{ListID},
+               description => $line->{Desc}, 
+               IC_income => '4500-lsmbinv',
+               IC_expense => '5500-lsmbinv',
+	       IC_inventory => '1500-lsmbinv',
+               sellprice => $line->{Rate},
+               dbh => $LedgerSMB::App_State::DBH,
+            };
+        }
         bless $part, 'Form';
         IC->save({}, $part);
+        $line->{Rate} //= $line->{Amount}; 
+        $line->{Quantity} //= 1;
+        $line->{Rate} *= -1 if $line->{RatePercent};
         return {
            id => $part->{id},
            description => $line->{Desc},

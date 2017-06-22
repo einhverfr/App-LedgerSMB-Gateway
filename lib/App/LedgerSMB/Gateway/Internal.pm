@@ -4,6 +4,7 @@ use App::LedgerSMB::Auth qw(authenticate);
 use lib "/opt/ledgersmb/";
 use Try::Tiny;
 use App::LedgerSMB::Gateway::Internal::Locale;
+use App::LedgerSMB::Gateway::Internal::Reports;
 use LedgerSMB::Sysconfig;
 use Log::Log4perl;
 use Dancer ':syntax';

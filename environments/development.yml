@@ -17,3 +17,7 @@ warnings: 1
 # Should Dancer show a stacktrace when an error is caught?
 show_errors: 1
 
+
+engines:
+    JSON:
+        convert_blessed: 1

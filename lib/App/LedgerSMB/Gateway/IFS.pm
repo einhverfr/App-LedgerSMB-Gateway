@@ -46,7 +46,7 @@ sub eca_save {
 sub get_invoice_lineitems {
     my ($struct) = @_;
     my @lines = ();
-    my $lineref = $struct->{InvoiceLineRet};
+    my $lineref = $struct->{InvoiceLineRet} // $struct->{ItemLineRet};
     my $innerref;
     $lineref = [$lineref] if ref $lineref eq 'HASH';
     @lines = @$lineref if ref $lineref;
@@ -138,9 +138,7 @@ sub get_part{
     $listid //= $line->{ClassRef}->{ListID};
     my $sql = "SELECT * FROM parts WHERE partnumber = ?";
     my $sth = LedgerSMB::App_State::DBH->prepare($sql);
-    warning($listid . " as partnumber");
     $sth->execute($listid);
-    warning($sth->rows);
     return $sth->fetchrow_hashref('NAME_lc');
 }
 
@@ -176,7 +174,7 @@ sub parts_save {
                dbh => $LedgerSMB::App_State::DBH,
             };
         } else {
-            my $part = {
+            $part = {
                partnumber => $line->{ItemRef}->{ListID},
                description => $line->{Desc}, 
                IC_income => '4500-lsmbinv',
@@ -228,7 +226,7 @@ sub bill_to_vi {
 	arap => 'ap',
 	ARAP => 'AP',
         vendor_id => $struct->{vendor_id},
-        AP => '1100-lsmbar',
+        AP => '2100-lsmbap',
         transdate => $struct->{TxnDate},
         duedate => $struct->{DueDate},
         currency => $curr,
@@ -238,6 +236,7 @@ sub bill_to_vi {
     my @lines = get_invoice_lineitems($struct);
     for (@lines){
         my $linestruct = parts_save($_);
+        $linestruct->{sellprice} = $_->{Amount} if $_->{Amount};
         $initial->{"${_}_$rowcount"} = $linestruct->{$_} for keys %$linestruct;
 	++$rowcount;
     }

@@ -25,9 +25,9 @@ use LedgerSMB::Report::Aging;
 
 prefix '/lsmbgw/0.1/:company/internal/reports';
 get '/balance_sheet/:date' => sub { to_json(balance_sheet(param('date'))) };
-get '/:class/aging/:date' => sub { to_json(aging(param('class'), )) };
+get '/:class/aging/:date' => sub { to_json(aging(param('class'), param('date') )) };
 get '/balance_sheet/:date/summary' => sub { to_json(bs_summary(param('date'))) };
-get '/:class/aging/:date/summary' => sub { to_json(aging_summary(param('class'))) };
+get '/:class/aging/:date/summary' => sub { to_json(aging_summary(param('class'), param('date'))) };
 
 get '/pnl/:from_date/:to_date' => sub { to_json(pnl(param('from_date'), param('to_date'))) };
 
@@ -43,7 +43,8 @@ sub pnl {
     local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 1 });
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
     my $report = LedgerSMB::Report::PNL::Income_Statement->new(
-          date_from => $from, date_to => $to, legacy_hierarchy => 1
+          date_from => $from, date_to => $to, legacy_hierarchy => 1,
+          comparison_type => 'periods', basis => 'accrual', ignore_yearend => 'all'
     );
     $report->run_report;
     return {rows => $report->rheads->ids, display_order => $report->rheads->sort };  
@@ -67,7 +68,15 @@ sub balance_sheet {
 }
 
 sub aging {
-    my ($date) = @_;
+    my ($class, $date) = @_;
+    my $eclass;
+    if (lc $class eq 'ar'){
+        $eclass = 2;
+    } elsif (lc $class eq 'ap') {
+        $eclass = 1;
+    } else {
+        die 'bad aging report.  needs to be ar or ap';
+    }
     my $db = authenticate(
             host   => $LedgerSMB::Sysconfig::db_host,
             port   => $LedgerSMB::Sysconfig::db_port,
@@ -76,10 +85,10 @@ sub aging {
     $date = LedgerSMB::PGDate->from_db($date, 'date');
     local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 1 });
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
-    my $report = LedgerSMB::Report::BalanceSheet->new(
-          date_to => $date, legacy_hierarchy => 1
+    my $report = LedgerSMB::Report::Aging->new(
+          date_to => $date, entity_class => $eclass, report_type => 'summary', to_date => $date
     );
-    $report->run_report;
+    eval { $report->run_report };
     return $report->rows();  
 }
 

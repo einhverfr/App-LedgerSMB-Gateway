@@ -5,7 +5,6 @@ use App::LedgerSMB::Gateway::Quickbooks;
 use App::LedgerSMB::Gateway::MyOB;
 use App::LedgerSMB::Gateway::IFS;
 use Dancer;
-use JSON;
 
 set environment => 'development';
 

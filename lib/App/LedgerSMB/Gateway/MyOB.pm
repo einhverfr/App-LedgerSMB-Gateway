@@ -217,9 +217,9 @@ sub decode_bill_lines {
 }
 
 sub encode_bill {
-    my ($ar) = @_;
+    my ($ap) = @_;
     return {
-        SupplierInvoiceNumber => $ar->Description {reference},
+        SupplierInvoiceNumber => $ap->{reference},
         Terms { DueDate => $ap->{postdate} },
         JournalMemo => $ap->{description},
         Lines => encode_bill_lines($ap->{lineitems}),

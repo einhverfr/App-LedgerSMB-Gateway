@@ -20,6 +20,7 @@ charset: "UTF-8"
 # template_toolkit: TT
 
 template: "simple"
+warnings: 0
 
 # template: "template_toolkit"
 # engines:

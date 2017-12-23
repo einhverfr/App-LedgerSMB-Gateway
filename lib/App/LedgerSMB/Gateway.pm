@@ -10,7 +10,23 @@ set environment => 'development';
 
 our $VERSION = '0.1';
 
+=head1 NAME
 
+App::LedgerSMB::Gateway - Base routines for the LSMB Gateway
+
+=head1 SYNOPSIS
+
+  sanitize($datastruct);
+  my $lsmbform = new_form($dbh, $struct);
+
+=head1 ROUTINES
+
+=head2 sanitize
+
+Walks through the keys of a hashref and converts them to the db-friendly
+forms if they have a to_db method.
+
+=cut
 
 sub sanitize{
    my ($ref) = @_;
@@ -20,6 +36,13 @@ sub sanitize{
       }
    }
 }
+
+=head2 new_form($db_handle, $hashref)
+
+Takes a database handle and a hash ref and returns a LSMB Form object with the same
+characteristics.
+
+=cut
 
 sub new_form {
    my ($db, $struct) = @_;

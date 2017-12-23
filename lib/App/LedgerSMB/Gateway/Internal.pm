@@ -45,6 +45,19 @@ our $VERSION = '0.1';
 
 get '/gl/:id' => sub { return to_json(get_gl(param('id'))) };
 
+=head1 NAME
+
+App::LedgerSMB::Gateway::Internal - Internal version-independent interface
+for LSMB-native interaction.
+
+=head1 URLS AND FUNCTIONS
+
+In all urls, :company is to be replaced with the company db name.
+
+Other parameters are described in the function immediately following.
+
+=head2 GET /lsmbgw/0.1/:company/internal/gl/:id
+
 =head2 get_gl(int id)
 
 Takes in an int, returns a hashref in the following structure, or
@@ -118,7 +131,11 @@ sub _convert_lines_from_gl {
 
 post '/gl/new' => sub { redirect(save_gl(from_json(request->body))) };
 
-=head2 save_gl
+=head2 POST /lsmbgw/0.1/:company/internal/gl/new
+
+Body must contain a JSON document with the structure found in the gl retrieval routines above.
+
+=head2 save_gl($hashref)
 
 Takes in a gl in format above and saves it, returning the new id.
 
@@ -165,6 +182,50 @@ sub _unfold_gl_lines{
     $struct->{rowcount} = $i;
 }
 
+=head2 GET /lsmbgw/0.1/:company/internal/salesinvoice/:id
+
+=head2 get_invoice(int $id)
+
+Returns a hashref (or json object document if over url) with the following properties:
+
+=over
+
+=item reference - Invoice identifer
+
+=item postdate - YYYY-MM-DD date if invoice
+
+=item counterparty - Customer account identifier
+
+=item lineitems - array of items containing the following
+
+=over
+
+=item product_number - product SKU
+
+=item description - Long description
+
+=item sellprice - Arbitrary precision decimal per unit
+
+=item quantity - units purchased
+
+=item discount - per unit discount, floating point (20% woudl be 0.2).
+
+=back
+
+=item taxes - array of objects/hashrefs with following properties:
+
+=over
+
+=item account_number
+
+=item amount
+
+=back
+
+=back
+
+=cut
+
 get '/salesinvoice/:id' => sub { return to_json(get_invoice(param('id'))) };
 sub get_invoice {
 	my ($id) = @_;
@@ -202,6 +263,17 @@ sub _convert_invoice_lines {
     ];
 }
 
+=head2 POST /lsmbgw/0.1/:company/internal/salesinvoice/new
+
+BODY is JSON document conforming to above GET specification
+
+=head2 save_invoice($hashref)
+
+Takes in a hashref or JSON document (if over URL) in the above specification
+and saves it.
+
+=cut
+
 post '/salesinvoice/new' => sub { redirect(save_gl(from_json(request->body))) };
 sub save_invoice {
         my ($struct) = @_;
@@ -221,10 +293,74 @@ sub save_invoice {
 get '/ar/:id' => sub { to_json(get_aa(param('id'), 'AR'))};
 get '/ap/:id' => sub { to_json(get_aa(param('id'), 'AP'))};
 
+=head2 /lsmbgw/0.1/:company/internal/:arap/:id
+
+=head2 get_aa(int $id, ("AR"|"AP") $arap)
+
+Gets an ar/ap "transaction" and returns it.
+
+In LedgerSMB terms, an AR/AP transaction is tied to amounts
+while an invoice is tied to goods and services.  This is 
+more or less like an AR or AP equivalent to a GL transaction
+than a normal invoice.
+
+$arap may be AR or AP.  $id is any int.
+
+The returned structure has the following fields:
+
+=over
+
+=item reference - Invoice identifier (customer-facing source document)
+
+=item counterparty - Customer or vendor agreement identifier
+
+=item description - Specified title of transaction
+
+=item postdate - date the transaction was posted.
+
+=item lineitems - array of hashref/object with following fields
+
+These are the counter-lines to the AR/AP entry line
+
+=over
+
+=item account_number - account identifier
+
+=item account_desc - account description
+
+=item reference - Optional link to a source document
+
+=item description - Memo for line
+
+=item postdate - date of line item posted (for ex. payment)
+
+=item amount - amount.
+
+=back
+
+=back
+
+Saving these through the internal interfaces is not currently supported.
+
+=cut
+ 
 my %vcmap = (
     'AR' => 'customer',
     'AP' => 'vendor',
 );
+
+sub _aa_line_from_internal {
+    my ($line) = @_;
+    return {
+        account_number => $_->{accno},
+        account_desc   => $_->{description},
+        reference      => $_->{source},
+        description    => $_->{memo},
+        postdate       => $_->{transdate},
+        amount         => $_->{amount}->bstr,
+    };
+}
+
 
 sub _aa_line_from_internal {
     my ($line) = @_;
@@ -291,6 +427,35 @@ sub save_payment {
 
 get 'coa/:id' => sub { to_json(get_account(param('id'))) };
 post 'coa/new' => sub { redirect(save_account(from_json(request->body))) };
+
+=head2 get /lsmbgw/0.1/:company/internal/coa/:id
+
+Gets an account by numeric id
+
+=head2 get_account(int $id)
+
+Returns a hashref or json object with the following elements:
+
+=over
+
+=item id - int id for account
+
+=item account_number - accountant-facing identifier, alphanumeric
+
+=item description - Dree-form text of account
+
+=item account_type (Asset, Liability, Equity, Income, or Expense)
+
+=back
+
+=head2 post /lsmbgw/0.1/:company/internal/coa/new
+
+=head2 save_account($hashref)
+
+Saves an account with the structure above.
+
+=cut
+
 
 sub get_account {
     my ($id) = @_;
@@ -521,37 +686,3 @@ sub form_to_part {
     };
        
 }
-
-sub part_to_form {
-    my ($part) = @_;
-    return {
-        sellprice => $part->{price}->{sell}, 
-        lastcost => $part->{price}->{cost},
-        listprice => $part->{price}->{list},
-        inventory_accno_id => $part->{account}->{income},
-        expense_accno_id => $part->{account}->{expense},
-        income_accno_id => $part->{account}->{income},
-        description => $part->{description},
-        id => $part->{id},
-    };
-}
-
-sub account_get_by_accno {
-    my ($accno) = @_;
-	my $db = authenticate(
-            host   => $LedgerSMB::Sysconfig::db_host,
-            port   => $LedgerSMB::Sysconfig::db_port,
-            dbname => param('company'),
-	);
-	my $form = new_form($db, {});
-	local $LedgerSMB::App_State::DBH = $form->{dbh};;
-	local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
-    my $acinterface = LedgerSMB::DBObject::Account->new(base => {});
-    my %account = map {$_->{accno} => $_ } $acinterface->list();
-    return _from_account($account{$accno});
-}
-
-
-1;
-
-

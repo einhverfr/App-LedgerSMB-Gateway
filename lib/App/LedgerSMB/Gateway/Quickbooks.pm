@@ -293,6 +293,11 @@ my %category_map = (
     CreditCard => 'Liability',
     CostOfGoodsSold => 'Expense',
     NonPosting => 'Equity',
+    'Accounts Receivable' => 'Asset',
+    'Accounts Payable' => 'Liability',
+    'Credit Card' => 'Liability',
+    'Cost Of Goods Sold' => 'Expense',
+    'NonPosting' => 'Equity',
 );
 
 sub encode_account {
@@ -306,7 +311,7 @@ sub encode_account {
 }
 
 sub decode_account {
-    my ($in) = $_;
+    my ($in) = @_;
     $in->{AccountNumber} //= $in->{ListID};
     my $type = $in->{AccountType};
     my $category;
@@ -318,7 +323,7 @@ sub decode_account {
         status '400';
         die 'Unknown category ' . $type;
     }
-    LedgerSMB::Setting->set("qbgw-account-$in->{ListID}", $in->{AccountNumber});
+    LedgerSMB::Setting->set("qbgw-account-$in->{ListID}", $in->{AccountNumber}) if $in->{AccountNumber};
     my ($account) = App::LedgerSMB::Gateway::Internal::account_get_by_accno($in->{AccountNumber});
     my %extra;
     $extra{id} = $account->{id} if $account;

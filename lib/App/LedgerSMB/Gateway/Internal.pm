@@ -686,3 +686,37 @@ sub form_to_part {
     };
        
 }
+
+sub part_to_form {
+    my ($part) = @_;
+    return {
+        sellprice => $part->{price}->{sell}, 
+        lastcost => $part->{price}->{cost},
+        listprice => $part->{price}->{list},
+        inventory_accno_id => $part->{account}->{income},
+        expense_accno_id => $part->{account}->{expense},
+        income_accno_id => $part->{account}->{income},
+        description => $part->{description},
+        id => $part->{id},
+    };
+}
+
+sub account_get_by_accno {
+    my ($accno) = @_;
+       my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+       );
+       my $form = new_form($db, {});
+       local $LedgerSMB::App_State::DBH = $form->{dbh};;
+       local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    my $acinterface = LedgerSMB::DBObject::Account->new(base => {});
+    my %account = map {$_->{accno} => $_ } $acinterface->list();
+    return _from_account($account{$accno});
+}
+
+
+1;
+
+

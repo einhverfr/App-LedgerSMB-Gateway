@@ -285,7 +285,7 @@ sub save_invoice {
 	my $form = new_form($db, $struct);
 	local $LedgerSMB::App_State::DBH = $form->{dbh};;
 	local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
-	IS->post({}, $form, $locale);
+	IS->post_invoice({}, $form, $locale);
 	$form->{dbh}->commit;
 	return $form->{id};
 }

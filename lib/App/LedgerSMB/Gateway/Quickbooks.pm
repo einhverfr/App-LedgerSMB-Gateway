@@ -27,7 +27,7 @@ sub _je_listid_to_accno {
 sub _je_lines_to_internal {
     my ($lineref) = @_;
     return [ map {
-     my $accno = $_->{AccountRef}->{value} // _je_listid_to_accno($_->{AccountRef}->{ListID});
+     my $accno = $_->{AccountRef}->{value} // _je_listid_to_accno($_->{AccountRef}->{ListID}) // $_->{JournalEntryLineDetail}->{AccountRef}->{value};
      {
              account_number => $accno,
              account_description => $_->{JournalEntryLineDetails}->{AccountRef}->{name},
@@ -287,17 +287,16 @@ sub save_bill {
 
 my @acctypes = qw(Asset Liability Equity Income Expense);
 my %category_map = (
-    Bank => 'Asset',
-    AccountsReceivable => 'Asset',
-    AccountsPayable => 'Liability',
-    CreditCard => 'Liability',
-    CostOfGoodsSold => 'Expense',
-    NonPosting => 'Equity',
-    'Accounts Receivable' => 'Asset',
-    'Accounts Payable' => 'Liability',
-    'Credit Card' => 'Liability',
-    'Cost Of Goods Sold' => 'Expense',
-    'NonPosting' => 'Equity',
+    Bank =>                  { category => 'Asset',     link => ['AR_paid', 'AP_paid']},
+    AccountsReceivable =>    { category => 'Asset',     link => ['AR']},
+    AccountsPayable =>       { category => 'Liability', link => ['AP']},
+    CreditCard =>            { category => 'Liability', link => ['AP_paid']},
+    CostOfGoodsSold =>       { category => 'Expense',   link => ['IC_cogs']},
+    NonPosting =>            { category => 'Equity',    link => []},
+    'Accounts Receivable' => { category => 'Asset',     link => ['AR']},
+    'Accounts Payable' =>    { category => 'Liability', link => ['AP']},
+    'Credit Card' =>         { category => 'Liability', link => ['AP_paid']},
+    'Cost of Goods Sold' =>  { category => 'Expense',   link => ['IC_cogs']},
 );
 
 sub encode_account {
@@ -318,19 +317,21 @@ sub decode_account {
     for (@acctypes) {
         $category = $_ if $type =~ /$_/i;
     }
-    $category ||= $category_map{$type};
+    $category ||= $category_map{$type}->{category};
+    my $link = $category_map{$type}->{link};
     unless ($category) {
         status '400';
         die 'Unknown category ' . $type;
     }
     LedgerSMB::Setting->set("qbgw-account-$in->{ListID}", $in->{AccountNumber}) if $in->{AccountNumber};
-    my ($account) = App::LedgerSMB::Gateway::Internal::account_get_by_accno($in->{AccountNumber});
+    my ($account) = App::LedgerSMB::Gateway::Internal::account_get_by_accno($in->{AccountNumber})  if $in->{AccountNumber};
     my %extra;
     $extra{id} = $account->{id} if $account;
     return {
-	account_number=> $in->{AccountNumber},
+	account_number=> $in->{AccountNumber} // $in->{Id},
         description => $in->{FullName},
         category => $category,
+        link => $link // [],
         %extra
     };
 }

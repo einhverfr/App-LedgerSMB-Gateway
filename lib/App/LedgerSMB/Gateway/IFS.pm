@@ -8,6 +8,8 @@ use LedgerSMB::Sysconfig;
 use LedgerSMB::Entity;
 use LedgerSMB::Entity::Company;
 use LedgerSMB::Entity::Credit_Account;
+use LedgerSMB::Entity::Location;
+use LedgerSMB::Entity::Contact;
 use LedgerSMB::IC;
 use LedgerSMB::IS;
 use LedgerSMB::IR;
@@ -20,14 +22,14 @@ our $VERSION = '0.1';
 sub eca_save {
     my ($entity_class, $cust) = @_;
     my $config = get_accounts_config();
-    my $company = LedgerSMB::Entity::Company->get_by_cc($cust->{ListID});
+    my $company = LedgerSMB::Entity::Company->get_by_cc($cust->{ListID} // $cust->{value});
     if ($company){
         my ($eca) = LedgerSMB::Entity::Credit_Account->list_for_entity($company->entity_id);
         return $eca->{id} if $eca;
     } else {
         $company = LedgerSMB::Entity::Company->new(
-	    control_code => $cust->{ListID},
-	    legal_name => $cust->{FullName},
+	    control_code => $cust->{ListID} // $cust->{value},
+	    legal_name => $cust->{FullName} // $cust->{name},
 	    entity_class => $entity_class,
             country_id => 232
         );
@@ -43,6 +45,25 @@ sub eca_save {
     return $eca->{id};
 }
 
+sub bill_add_save {
+    my ($entity_id, $address) = @_;
+    my $loc = LedgerSMB::Entity::Location->new(
+        line_one => $address->{Line1},
+        line_two => $address->{Line2},
+        line_three => $address->{Line3},
+        line_four => $address->{Line4},
+        city => $address->{City},
+        state => $address->{State},
+        zipcode => $address->{PostalCode},
+        country => 232,
+    );
+    $loc->save;
+}
+
+sub bill_email_save {
+    my ($entity_id, $email) = @_;
+}
+
 sub get_invoice_lineitems {
     my ($struct) = @_;
     my @lines = ();
@@ -50,6 +71,7 @@ sub get_invoice_lineitems {
     my $innerref;
     $lineref = [$lineref] if ref $lineref eq 'HASH';
     @lines = @$lineref if ref $lineref;
+    push @lines, grep {$_->{SalesItemLineDetail}->{"ItemRef"} } @{$struct->{Line}};
     
     $lineref = $struct->{InvoiceLineGroupRet};
     $lineref = [$lineref] if ref $lineref eq 'HASH';
@@ -134,7 +156,7 @@ sub get_accounts_config{
 sub get_part{
     my ($line) = @_;
     my $listid;
-    $listid = $line->{ItemRef}->{ListID} if exists $line->{ItemRef};
+    $listid = ($line->{ItemRef}->{ListID} // $line->{SalesItemLineDetail}->{ItemRef}->{value}) if exists $line->{ItemRef};
     $listid //= $line->{ClassRef}->{ListID};
     my $sql = "SELECT * FROM parts WHERE partnumber = ?";
     my $sth = LedgerSMB::App_State::DBH->prepare($sql);
@@ -142,6 +164,7 @@ sub get_part{
     return $sth->fetchrow_hashref('NAME_lc');
 }
 
+#{"Id": "3", "Line": [{"Id": "1", "Amount": 290, "LineNum": 1, "LinkedTxn": [], "DetailType": "SalesItemLineDetail", "CustomField": [], "Description": "test", "SalesItemLineDetail": {"Qty": 58, "ItemRef": {"name": "Sales", "type": "", "value": "1"}, "ClassRef": null, "UnitPrice": 5, "MarkupInfo": null, "TaxCodeRef": {"name": "", "type": "", "value": "NON"}, "ServiceDate": "", "PriceLevelRef": null, "TaxInclusiveAmt": 0}}, {"Id": null, "Amount": 290, "LineNum": 0, "LinkedTxn": [], "DetailType": "SubTotalLineDetail", "CustomField": [], "Description": null, "SubTotalLineDetail": {}, "SubtotalLineDetail": null}], "domain": "QBO", "sparse": false, "Balance": 290, "Deposit": 0, "DueDate": "2018-09-05", "TxnDate": "2018-08-06", "BillAddr": {"Id": "5", "Lat": "", "City": "", "Long": "", "Note": "", "Line1": "Mr Harry J Potter", "Line2": "Hogwarts", "Line3": "test", "Line4": "test, test  test test", "Line5": "", "Country": "", "PostalCode": "", "CountrySubDivisionCode": ""}, "MetaData": {"CreateTime": "2018-08-06T06:53:46-07:00", "LastUpdatedTime": "2018-08-06T06:53:46-07:00"}, "ShipAddr": {"Id": "2", "Lat": "", "City": "test", "Long": "", "Note": "", "Line1": "test", "Line2": "", "Line3": "", "Line4": "", "Line5": "", "Country": "test", "PostalCode": "test", "CountrySubDivisionCode": "test"}, "ShipDate": "", "TotalAmt": 290, "BillEmail": {"Address": "test1@devifg.com"}, "DocNumber": "1003", "LinkedTxn": [], "SyncToken": "0", "CurrencyRef": {"name": "United States Dollar", "type": "", "value": "USD"}, "CustomField": [], "CustomerRef": {"name": "Mr Harry Potter", "type": "", "value": "1"}, "EmailStatus": "NotSet", "PrintStatus": "NotSet", "PrivateNote": "", "TrackingNum": "", "customer_id": "3", "CustomerMemo": null, "DeliveryInfo": null, "ExchangeRate": 1, "SalesTermRef": {"name": "", "type": "", "value": "3"}, "TxnTaxDetail": null, "DepartmentRef": null, "EInvoiceStatus": null, "AllowIPNPayment": false, "AllowOnlinePayment": false, "GlobalTaxCalculation": "TaxExcluded", "AllowOnlineACHPayment": false, "ApplyTaxAfterDiscount": false, "AllowOnlineCreditCardPayment": false}
 sub parts_save {
     my ($line) = @_;
     unless (ref $line eq 'HASH'){
@@ -149,17 +172,17 @@ sub parts_save {
         warning("bad line: $line");
         return;
     }
+    warning( $line->{Desc} // $line->{Description});
     my $listid;
-
     my $part = get_part($line);
     warning("$part " . to_json($line));
     $line->{Quantity} //= 1;
     if ($part){
         return {
            id => $part->{id},
-           description => $line->{Desc},
-           sellprice => $line->{Rate},
-	   qty => $line->{Quantity},
+           description => $line->{Desc} // $line->{Description},
+           sellprice => $line->{Rate} // $line->{UnitPrice},
+	   qty => $line->{Quantity} // $line->{"SalesItemLineDetail"}->{Qty},
 	};
     } else {
         my $config = get_accounts_config();
@@ -175,12 +198,12 @@ sub parts_save {
             };
         } else {
             $part = {
-               partnumber => $line->{ItemRef}->{ListID},
-               description => $line->{Desc}, 
+               partnumber => $line->{ItemRef}->{ListID} // $line->{ItemRef}->{value},
+               description => $line->{Desc} // $line->{Description}, 
                IC_income => '4500-lsmbinv',
                IC_expense => '5500-lsmbinv',
 	       IC_inventory => '1500-lsmbinv',
-               sellprice => $line->{Rate},
+               sellprice => $line->{Rate} // $line->{UnitPrice},
                dbh => $LedgerSMB::App_State::DBH,
             };
         }
@@ -221,7 +244,7 @@ sub bill_to_vi {
     my $curr = 'USD';
     my $initial = {
         vc => 'vendor',
-        invnumber => $struct->{TxnNumber},
+        invnumber => $struct->{TxnNumber} // $struct->{DocNumber},
         exchangerate => 1,
 	arap => 'ap',
 	ARAP => 'AP',
@@ -306,6 +329,7 @@ sub invoice_to_si {
     my $curr = 'USD';
     my $initial = {
         vc => 'customer',
+        invnumber => $struct->{TxnNumber} // $struct->{DocNumber},
         transdate => $struct->{TxnDate},
         currency => 'USD',
         exchangerate => 1,

@@ -38,6 +38,7 @@ sub eca_save {
     }
     my $eca = LedgerSMB::Entity::Credit_Account->new(
 	    entity_id => $company->entity_id,
+            meta_number => $cust->{ListID} // $cust->{value},
 	    entity_class => $entity_class,
             ar_ap_account_id => $config->{ar},
     );
@@ -46,18 +47,22 @@ sub eca_save {
 }
 
 sub bill_add_save {
-    my ($entity_id, $address) = @_;
+    my ($eca_id, $address) = @_;
     my $loc = LedgerSMB::Entity::Location->new(
+        location_class => 1,
         line_one => $address->{Line1},
         line_two => $address->{Line2},
         line_three => $address->{Line3},
         line_four => $address->{Line4},
-        city => $address->{City},
-        state => $address->{State},
+        city => $address->{City} || 'NO DATA',
+        state => $address->{State} // $address->{CountrySubDivisionCode} // 'NO DATA',
         zipcode => $address->{PostalCode},
-        country => 232,
+        country_id => 232,
+        credit_id => $eca_id,
     );
-    $loc->save;
+    try {
+         $loc->save;
+    };
 }
 
 sub bill_email_save {
@@ -299,8 +304,18 @@ sub invoice_save {
         return 'success';
     }
     $struct->{customer_id} = eca_save(2, $struct->{CustomerRef});
+    bill_add_save( $struct->{customer_id}, $struct->{BillAddr}) if $struct->{BillAddr};
     return save_salesinvoice(invoice_to_si($struct));
 }
+
+sub customer_vendor_save {
+    my ($class, $struct) = @_;
+    my $customer_id = eca_save($class, $struct);
+    bill_add_save( $customer_id, $struct->{BillAddr});
+    save_contacts($struct);
+    return $struct->{customer_id}
+}
+
 
 sub save_vendorinvoice {
     my ($struct) = @_;
@@ -369,6 +384,13 @@ sub invoice_to_si {
     return $initial;
 }
 
+sub contact_save {
+    goto &App::LedgerSMB::Gateway::Internal::counterparty_save_contacts;
+}
+
+post '/customer/new' => sub {warning(request->body); to_json({success => customer_vendor_save(2, request->body)})};
+post '/vendor/new' => sub {warning(request->body); to_json({success => customer_vendor_save(1, request->body)})};
 post '/purchase/new' => sub {warning(request->body); bill_save(from_json(request->body)); to_json({success => 1})};
 
+post '/customercontact/new' => sub {warning(request->body); to_json({success => contact_save(2, from_json(request->body))})};
 post '/sales/new' => sub {warning(request->body); invoice_save(from_json(request->body)); to_json({success => 1})};

@@ -425,8 +425,8 @@ sub get_payment {
 sub save_payment {
 }
 
-get 'coa/:id' => sub { to_json(get_account(param('id'))) };
-post 'coa/new' => sub { redirect(save_account(from_json(request->body))) };
+get '/coa/:id' => sub { to_json(get_account(param('id'))) };
+post '/coa/new' => sub { warning(request->body); redirect(save_account(from_json(request->body))) };
 
 =head2 get /lsmbgw/0.1/:company/internal/coa/:id
 
@@ -716,6 +716,59 @@ sub account_get_by_accno {
     return _from_account($account{$accno});
 }
 
+my $cclass = {
+    phone => 1,
+    fax => 9,
+    email => 15,
+};
+
+sub counterparty_save_contacts {
+     my ($eclass, $struct) = @_;
+     my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+     );
+       my $form = new_form($db, {});
+     local $LedgerSMB::App_State::DBH = $form->{dbh};;
+     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+     my $meta_number = $struct->{number};
+     my $email =  $struct->{email};
+     my $phone =  $struct->{phone};
+     my $fax=  $struct->{fax};
+     my $eca;
+        $eca = LedgerSMB::Entity::Credit_Account->get_by_meta_number($meta_number, $eclass);
+     return 0 unless $eca;
+     for my $c (keys %$cclass){
+         next unless $struct->{$c};
+         my $contact = LedgerSMB::Entity::Contact->new(credit_id => $eca->id, class_id => $cclass->{$c}, contact => $struct->{$c});
+         $contact->save;
+     }
+    bill_add_save($eca->id, $struct->{bill_addr}) if $struct->{bill_addr};
+    $form->{dbh}->commit;
+     return 1;
+}
+
+sub bill_add_save {
+    my ($eca_id, $address) = @_;
+    my $loc = LedgerSMB::Entity::Location->new(
+        location_class => 1,
+        line_one => $address->{Line1},
+        line_two => $address->{Line2},
+        line_three => $address->{Line3},
+        line_four => $address->{Line4},
+        city => $address->{City} || 'NO DATA',
+        state => $address->{State} // $address->{CountrySubDivisionCode} // 'NO DATA',
+        zipcode => $address->{PostalCode},
+        country_id => 232,
+        credit_id => $eca_id,
+    );
+    try {
+         $loc->save;
+    };
+}
+
+post '/customercontacts/new' => sub { to_json({success => counterparty_save_contacts(2, from_json(request->body))}) };
 
 1;
 

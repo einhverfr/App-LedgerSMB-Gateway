@@ -743,6 +743,7 @@ sub counterparty_save_contacts {
          next unless $struct->{$c};
          my $contact = LedgerSMB::Entity::Contact->new(credit_id => $eca->id, class_id => $cclass->{$c}, contact => $struct->{$c});
          $contact->save;
+         $form->{dbh}->commit;
      }
     bill_add_save($eca->id, $struct->{bill_addr}) if $struct->{bill_addr};
     $form->{dbh}->commit;

@@ -103,7 +103,6 @@ sub get_accounts_config{
         accno => '1100-lsmbar',
         category => 'A',
 	description => 'internal lsmb gateway ar acct',
-	link => ['AR']
     });
     my $acc2100 = LedgerSMB::DBObject::Account->new(base => {
         accno => '2100-lsmbap',
@@ -114,6 +113,9 @@ sub get_accounts_config{
     $acc2100->save;
 
     $acc1100->save;
+    $LedgerSMB::App_State::DBH->do("insert into account_link (account_id, description)
+       select id, 'AR' from account where accno = '1100-lsmbar'");
+    
     my $acc1000 = LedgerSMB::DBObject::Account->new(base => {
         accno => '1000-lsmbpay',
         category => 'A',
@@ -169,7 +171,6 @@ sub get_part{
     return $sth->fetchrow_hashref('NAME_lc');
 }
 
-#{"Id": "3", "Line": [{"Id": "1", "Amount": 290, "LineNum": 1, "LinkedTxn": [], "DetailType": "SalesItemLineDetail", "CustomField": [], "Description": "test", "SalesItemLineDetail": {"Qty": 58, "ItemRef": {"name": "Sales", "type": "", "value": "1"}, "ClassRef": null, "UnitPrice": 5, "MarkupInfo": null, "TaxCodeRef": {"name": "", "type": "", "value": "NON"}, "ServiceDate": "", "PriceLevelRef": null, "TaxInclusiveAmt": 0}}, {"Id": null, "Amount": 290, "LineNum": 0, "LinkedTxn": [], "DetailType": "SubTotalLineDetail", "CustomField": [], "Description": null, "SubTotalLineDetail": {}, "SubtotalLineDetail": null}], "domain": "QBO", "sparse": false, "Balance": 290, "Deposit": 0, "DueDate": "2018-09-05", "TxnDate": "2018-08-06", "BillAddr": {"Id": "5", "Lat": "", "City": "", "Long": "", "Note": "", "Line1": "Mr Harry J Potter", "Line2": "Hogwarts", "Line3": "test", "Line4": "test, test  test test", "Line5": "", "Country": "", "PostalCode": "", "CountrySubDivisionCode": ""}, "MetaData": {"CreateTime": "2018-08-06T06:53:46-07:00", "LastUpdatedTime": "2018-08-06T06:53:46-07:00"}, "ShipAddr": {"Id": "2", "Lat": "", "City": "test", "Long": "", "Note": "", "Line1": "test", "Line2": "", "Line3": "", "Line4": "", "Line5": "", "Country": "test", "PostalCode": "test", "CountrySubDivisionCode": "test"}, "ShipDate": "", "TotalAmt": 290, "BillEmail": {"Address": "test1@devifg.com"}, "DocNumber": "1003", "LinkedTxn": [], "SyncToken": "0", "CurrencyRef": {"name": "United States Dollar", "type": "", "value": "USD"}, "CustomField": [], "CustomerRef": {"name": "Mr Harry Potter", "type": "", "value": "1"}, "EmailStatus": "NotSet", "PrintStatus": "NotSet", "PrivateNote": "", "TrackingNum": "", "customer_id": "3", "CustomerMemo": null, "DeliveryInfo": null, "ExchangeRate": 1, "SalesTermRef": {"name": "", "type": "", "value": "3"}, "TxnTaxDetail": null, "DepartmentRef": null, "EInvoiceStatus": null, "AllowIPNPayment": false, "AllowOnlinePayment": false, "GlobalTaxCalculation": "TaxExcluded", "AllowOnlineACHPayment": false, "ApplyTaxAfterDiscount": false, "AllowOnlineCreditCardPayment": false}
 sub parts_save {
     my ($line) = @_;
     unless (ref $line eq 'HASH'){
@@ -270,12 +271,12 @@ sub bill_to_vi {
     }
     $initial->{rowcount} = $rowcount;
     $struct->{linkedTxn} = [$struct->{linkedTxn}] if ref $struct->{linkedTxn} eq 'HASH';
-    my $paidrows = 0;
+    my $paidrows = 1;
     try {
     for (grep  { $_->{TxnType} eq 'ReceivePayment'} @{$struct->{LinkedTxn}}){
        my $amount = $_->{Amount} * -1;
        my $linestruct = {
-         AR_Paid => '1100-lsmbpay',
+         AR_paid => '1000-lsmbpay',
          paid => $amount,
          datepaid => $_->{TxnDate},
          source => $_->{RefNumber},
@@ -286,6 +287,8 @@ sub bill_to_vi {
     }
     };
     $initial->{paidaccounts} = $paidrows;
+    use Data::Dumper;
+    print STDERR Dumper($initial) . "\n";
     return $initial;
 }
 
@@ -369,7 +372,7 @@ sub invoice_to_si {
     try {
     for (grep  { $_->{TxnType} eq 'ReceivePayment'} @{$struct->{linkedTxn}}){
        my $linestruct = {
-         AR_Paid => '1100-lsmbpay',
+         AR_paid => '1000-lsmbpay',
          paid => $_->{Amount} * -1,
          datepaid => $_->{TxnDate},
          source => $_->{RefNumber},

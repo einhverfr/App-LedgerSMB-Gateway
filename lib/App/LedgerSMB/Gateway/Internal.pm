@@ -446,6 +446,8 @@ Returns a hashref or json object with the following elements:
 
 =item account_type (Asset, Liability, Equity, Income, or Expense)
 
+=item account_tags: comma separated list of tags to store for the account (account_link in lsmb terms)
+
 =back
 
 =head2 post /lsmbgw/0.1/:company/internal/coa/new
@@ -489,7 +491,7 @@ sub _from_account {
 	account_number => $lsmb_act->{accno},
         description => $lsmb_act->{description},
         account_type => $category->{$lsmb_act->{category}},
-        
+        account_tags => join(',', @{$lsmb_act->{link}}),
     };
 }
 
@@ -501,7 +503,7 @@ sub _to_account {
         accno => $neutral->{account_number},
         description => $neutral->{description},
         category => $rcategory->{$neutral->{category}},
-        
+        link => [split ',', $neutral->{account_tags}],
     };
 }
 

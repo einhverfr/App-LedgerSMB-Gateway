@@ -359,9 +359,13 @@ sub save_account {
         return $ret;
     }
     my $decoded = decode_account($account);
-    App::LedgerSMB::Gateway::Internal::save_account(
+    my $id = App::LedgerSMB::Gateway::Internal::save_account(
         $decoded
     );
+    for my $desc (@{$account->{link}}){
+        # all values whitelisted so this is safe
+        $LedgerSMB::App_State::DBH->do("insert into account_link (account_id, description) values ($id, '$desc')");
+    }
 }
 
 get '/account/:id' => sub {to_json(get_account(param('id')))};

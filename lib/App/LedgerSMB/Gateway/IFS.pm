@@ -18,6 +18,25 @@ use Try::Tiny;
 
 prefix '/lsmbgw/0.1/:company/quickbooks';
 our $VERSION = '0.1';
+use strict;
+sub ext_info_save {
+    my ($payload) = @_;
+    my $db = authenticate(
+            host   => $LedgerSMB::Sysconfig::db_host,
+            port   => $LedgerSMB::Sysconfig::db_port,
+            dbname => param('company'),
+    );
+    local $LedgerSMB::App_State::DBH = $db->connect({ AutoCommit => 0 });
+    local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    use Data::Dumper;
+    warning(Dumper($db));
+    my $key = $payload->{key};
+    LedgerSMB::Setting->set($key, to_json($payload->{value}));
+    $LedgerSMB::App_State::DBH->commit;
+    return 1;
+}
+
+post '/extinfo/new' => sub {warning(request->body); to_json({success =>ext_info_save(from_json(request->body))})};
 
 sub eca_save {
     my ($entity_class, $cust) = @_;
@@ -234,14 +253,15 @@ sub bill_save {
             port   => $LedgerSMB::Sysconfig::db_port,
             dbname => param('company'),
     );
-    local $LedgerSMB::App_State::DBH = $db->connect({ AutoCommit => 1 });
+    local $LedgerSMB::App_State::DBH = $db->connect({ AutoCommit => 0 });
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
     $struct = App::LedgerSMB::Gateway::Quickbooks::unwrap_qbxml($struct, ['BillQueryRs', 'BillRet']);
     if (ref $struct eq 'ARRAY') {
         bill_save($_) for @$struct;
         return 'success';
     }
-    $struct->{vendor_id} = eca_save(1, $struct->{"VendorRef"});
+    $struct->{vendor_id} = eca_save(1, $struct->{"VendorRef"} // {name => 'Internal Vendor', value => 'INTERNAL'});
+    $LedgerSMB::App_State::DBH->commit;
     return save_vendorinvoice(bill_to_vi($struct));
 }
 
@@ -299,7 +319,7 @@ sub invoice_save {
             port   => $LedgerSMB::Sysconfig::db_port,
             dbname => param('company'),
     );
-    local $LedgerSMB::App_State::DBH = $db->connect({ AutoCommit => 1 });
+    local $LedgerSMB::App_State::DBH = $db->connect({ AutoCommit => 0 });
     local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
     $struct = App::LedgerSMB::Gateway::Quickbooks::unwrap_qbxml($struct, ['InvoiceQueryRs', 'InvoiceRet']);
     if (ref $struct eq 'ARRAY') {
@@ -307,7 +327,9 @@ sub invoice_save {
         return 'success';
     }
     $struct->{customer_id} = eca_save(2, $struct->{CustomerRef});
+    $LedgerSMB::App_State::DBH->commit;
     bill_add_save( $struct->{customer_id}, $struct->{BillAddr}) if $struct->{BillAddr};
+    $LedgerSMB::App_State::DBH->commit;
     return save_salesinvoice(invoice_to_si($struct));
 }
 

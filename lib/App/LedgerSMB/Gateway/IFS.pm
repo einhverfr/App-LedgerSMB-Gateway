@@ -200,7 +200,7 @@ sub parts_save {
     warning( $line->{Desc} // $line->{Description});
     my $listid;
     my $part = get_part($line);
-    warning("$part " . to_json($line));
+    warning(to_json($line));
     $line->{Quantity} //= 1;
     if ($part){
         return {
@@ -234,6 +234,7 @@ sub parts_save {
         }
         bless $part, 'Form';
         IC->save({}, $part);
+        warning("Got part id: $part->{id}");
         $line->{Rate} //= $line->{Amount}; 
         $line->{Quantity} //= 1;
         $line->{Rate} *= -1 if $line->{RatePercent};
@@ -285,6 +286,7 @@ sub bill_to_vi {
     my @lines = get_invoice_lineitems($struct);
     for (@lines){
         my $linestruct = parts_save($_);
+        $LedgerSMB::App_State::DBH->commit;
         $linestruct->{sellprice} = $_->{Amount} if $_->{Amount};
         $initial->{"${_}_$rowcount"} = $linestruct->{$_} for keys %$linestruct;
 	++$rowcount;
@@ -356,11 +358,8 @@ sub save_vendorinvoice {
 sub save_salesinvoice {
     my ($struct) = @_;
     my $form = App::LedgerSMB::Gateway::Internal::new_form(undef, $struct);
-    try {
-        IS->post_invoice({}, $form);
-    } catch {
-        warning($_);
-    };
+    IS->post_invoice({}, $form);
+    $LedgerSMB::App_State::DBH->commit; 
     return 'success';
 }
 
@@ -379,7 +378,7 @@ sub invoice_to_si {
         AR => '1100-lsmbar',
         duedate => $struct->{DueDate},
         currency => $curr,
-        intnotes => to_json($struct),
+        intnotes => to_json($struct)
     };
     my $rowcount = 1;
     $struct->{InvoiceLineRet} = [$struct->{InvoiceLineRet}] if ref $struct->{InvoiceLineRet} eq 'HASH';

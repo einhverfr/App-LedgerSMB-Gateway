@@ -16,6 +16,8 @@ use LedgerSMB::Report::Balance_Sheet;
 use LedgerSMB::Report::PNL::Income_Statement;
 use LedgerSMB::Report::Aging;
 use LedgerSMB::Report::Invoices::Transactions;
+use DateTime;
+use DateTime::TimeZone;
 
 my $locale = App::LedgerSMB::Gateway::Internal::Locale->new();
 
@@ -151,10 +153,11 @@ sub aging {
     );
     $date = LedgerSMB::PGDate->from_db($date, 'date');
     local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 1 });
-    local $LedgerSMB::App_State::User = {numberformat => '1000.00'};
+    local $LedgerSMB::App_State::User = {numberformat => '1,000.00'};
     my $report = LedgerSMB::Report::Aging->new(
           date_to => $date, entity_class => $eclass, report_type => 'summary', to_date => $date
     );
+    $report->{report_name} = uc($class) . " Aging";
     eval { $report->run_report };
     $report->rows();
     return $report->rows() unless $format;  
@@ -195,7 +198,8 @@ sub render_report {
     warning(to_json($self->rows));
     my $template;
     my $request = {};
-
+    my $dt = DateTime->now()->set_time_zone('America/New_York');
+    $self->{nowtime} = $dt->ymd . ' ' . $dt->hms . ' Eastern Time';
     my $testref = $self->rows;
     $self->run_report($request) if !defined $testref;
     # This is a hook for other modules to use to override the default
@@ -311,18 +315,25 @@ sub render_report {
     # i.e. ignore_yearends -> ignore\_yearends
     # in latex
     my $replace_hnames = sub {
-        my $lines = shift;
+        my $lines = shift || [];
         my @newlines = map { { name => $_->{name} } } @{$self->header_lines};
         return [map { { %$_, %{shift @newlines} } } @$lines ];
     };
+    my $company_name = LedgerSMB::Setting->get('company_name');
+    warn "company_name:$company_name";
+    $self->{cname} = $company_name;
+    $self->{cnumber} = param('company');
+    $self->{cnumber} =~ s/^ifg//;
     $template->render({report => $self,
-                 company_name => LedgerSMB::Setting->get('company_name'),
+                 company_name => $company_name,
+                  companyname => $company_name,
               company_address => LedgerSMB::Setting->get('company_address'),
-                      request => {},
+                      request => {nowtime => $self->{nowtime}},
                     new_heads => $replace_hnames,
-                         name => $self->name,
+                         name => $self->{report_name} // $self->name,
                        hlines => $self->header_lines,
                       columns => $columns,
+                      nowtime => $self->{nowtime},
                     order_url => $self->order_url,
                       buttons => [],
                       options => [], gateway => 1,

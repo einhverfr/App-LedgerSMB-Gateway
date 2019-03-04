@@ -1,7 +1,7 @@
 package App::LedgerSMB::Gateway::IFS;
 
 use Dancer ':syntax';
-
+#use Carp::Always;
 use App::LedgerSMB::Auth qw(authenticate);
 use LedgerSMB::App_State;
 use LedgerSMB::Sysconfig;
@@ -31,7 +31,7 @@ sub ext_info_save {
     use Data::Dumper;
     warning(Dumper($db));
     my $key = $payload->{key};
-    LedgerSMB::Setting->set($key, to_json($payload->{value}));
+    LedgerSMB::Setting->set($key, ref $payload->{value} ? to_json($payload->{value}) : $payload->{value});
     $LedgerSMB::App_State::DBH->commit;
     return 1;
 }
@@ -112,6 +112,9 @@ sub get_invoice_lineitems {
     return @lines;
 }
 
+sub get_purchase_lines {
+}
+
 sub get_accounts_config{
     my $setname = 'GW-qbaccounts';
     my $config_json = LedgerSMB::Setting->get($setname);
@@ -134,6 +137,8 @@ sub get_accounts_config{
     $acc1100->save;
     $LedgerSMB::App_State::DBH->do("insert into account_link (account_id, description)
        select id, 'AR' from account where accno = '1100-lsmbar'");
+    $LedgerSMB::App_State::DBH->do("insert into account_link (account_id, description)
+       select id, 'AP' from account where accno = '2100-lsmbap'");
     
     my $acc1000 = LedgerSMB::DBObject::Account->new(base => {
         accno => '1000-lsmbpay',
@@ -191,7 +196,7 @@ sub get_part{
 }
 
 sub parts_save {
-    my ($line) = @_;
+    my ($line, $service) = @_;
     unless (ref $line eq 'HASH'){
         warning(to_json($line)) if ref $line;
         warning("bad line: $line");
@@ -231,6 +236,7 @@ sub parts_save {
                sellprice => $line->{Rate} // $line->{UnitPrice},
                dbh => $LedgerSMB::App_State::DBH,
             };
+            delete $part->{IC_inventory} if $service;
         }
         bless $part, 'Form';
         IC->save({}, $part);
@@ -262,7 +268,6 @@ sub bill_save {
         return 'success';
     }
     $struct->{vendor_id} = eca_save(1, $struct->{"VendorRef"} // {name => 'Internal Vendor', value => 'INTERNAL'});
-    $LedgerSMB::App_State::DBH->commit;
     return save_vendorinvoice(bill_to_vi($struct));
 }
 
@@ -271,7 +276,7 @@ sub bill_to_vi {
     my $curr = 'USD';
     my $initial = {
         vc => 'vendor',
-        invnumber => $struct->{TxnNumber} // $struct->{DocNumber},
+        invnumber => $struct->{TxnNumber} // $struct->{DocNumber} // $struct->{Id}, # fall back to ID if nothing else set to avoid dupes
         exchangerate => 1,
 	arap => 'ap',
 	ARAP => 'AP',
@@ -290,6 +295,18 @@ sub bill_to_vi {
         $linestruct->{sellprice} = $_->{Amount} if $_->{Amount};
         $initial->{"${_}_$rowcount"} = $linestruct->{$_} for keys %$linestruct;
 	++$rowcount;
+    }
+    @lines = grep {$_->{"DetailType"} eq 'AccountBasedExpenseLineDetail'} @{$struct->{Line}};
+    for my $l (@lines){
+        next unless ref $l;
+        next unless $l->{'AccountBasedExpenseLineDetail'};
+        my $linestruct = parts_save($l, 1);
+        $LedgerSMB::App_State::DBH->commit;
+        use Data::Dumper;
+        warn Dumper($l);
+        $linestruct->{sellprice} = $l->{Amount} if $l->{Amount};
+        $initial->{"${_}_$rowcount"} = $linestruct->{$_} for keys %$linestruct;
+        ++$rowcount;
     }
     $initial->{rowcount} = $rowcount;
     $struct->{linkedTxn} = [$struct->{linkedTxn}] if ref $struct->{linkedTxn} eq 'HASH';
@@ -338,7 +355,7 @@ sub invoice_save {
 sub customer_vendor_save {
     my ($class, $struct) = @_;
     my $customer_id = eca_save($class, $struct);
-    bill_add_save( $customer_id, $struct->{BillAddr});
+    bill_add_save( $customer_id, $struct->{BillAddr} // $struct->{address});
     save_contacts($struct);
     return $struct->{customer_id}
 }
@@ -352,6 +369,7 @@ sub save_vendorinvoice {
     } catch {
         warning($_);
     };
+    $LedgerSMB::App_State::DBH->commit;
     return 'success';
 }
 

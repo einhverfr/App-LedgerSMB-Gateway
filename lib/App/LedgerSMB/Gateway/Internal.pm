@@ -750,6 +750,7 @@ sub counterparty_save_contacts {
          $form->{dbh}->commit;
      }
     bill_add_save($eca->id, $struct->{bill_addr}) if $struct->{bill_addr};
+    bill_add_save($eca->id, $struct->{address}) if $struct->{address};
     $form->{dbh}->commit;
      return 1;
 }

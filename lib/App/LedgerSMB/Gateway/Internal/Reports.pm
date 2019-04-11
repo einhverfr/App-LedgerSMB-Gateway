@@ -155,7 +155,7 @@ sub aging {
     local $LedgerSMB::App_State::DBH = $db->connect({AutoCommit => 1 });
     local $LedgerSMB::App_State::User = {numberformat => '1,000.00'};
     my $report = LedgerSMB::Report::Aging->new(
-          date_to => $date, entity_class => $eclass, report_type => 'summary', to_date => $date
+          date_to => $date, entity_class => $eclass, report_type => 'summary', to_date => $date, order_by => 'curr'
     );
     $report->{report_name} = uc($class) . " Aging";
     eval { $report->run_report };
@@ -183,8 +183,6 @@ sub aging_summary {
 
 sub template_contents {
     my ($template) = @_;
-    warning($template->{output});
-    warning($template->{rendered});
     return $template->{output} if $template->{output};
     open DATA, '<', $template->{rendered};
     my $data = join('', <DATA>);
@@ -195,7 +193,6 @@ sub template_contents {
 
 sub render_report {
     my ($self, $format) = @_;
-    warning(to_json($self->rows));
     my $template;
     my $request = {};
     my $dt = DateTime->now()->set_time_zone('America/New_York');
@@ -225,7 +222,6 @@ sub render_report {
     ) if $self->order_by;
 
     my $rows = $self->rows;
-	warning(to_json($_)) for @$rows;
 
 
     @$rows = sort {
@@ -320,7 +316,6 @@ sub render_report {
         return [map { { %$_, %{shift @newlines} } } @$lines ];
     };
     my $company_name = LedgerSMB::Setting->get('company_name');
-    warn "company_name:$company_name";
     $self->{cname} = $company_name;
     $self->{cnumber} = param('company');
     $self->{cnumber} =~ s/^ifg//;

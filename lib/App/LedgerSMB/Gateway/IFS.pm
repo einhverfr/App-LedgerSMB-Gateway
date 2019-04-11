@@ -31,7 +31,7 @@ sub ext_info_save {
     use Data::Dumper;
     warning(Dumper($db));
     my $key = $payload->{key};
-    LedgerSMB::Setting->set($key, ref $payload->{value} ? to_json($payload->{value}) : $payload->{value});
+    LedgerSMB::Setting->set($key, (ref $payload->{value} ? to_json($payload->{value}) : $payload->{value}));
     $LedgerSMB::App_State::DBH->commit;
     return 1;
 }
@@ -273,11 +273,12 @@ sub bill_save {
 
 sub bill_to_vi {
     my ($struct) = @_;
-    my $curr = 'USD';
+    my $curr = $struct->{CurrencyRef}->{value} // 'USD';
+    my $exchrate = $struct->{ExchangeRate} ? $struct->{ExchangeRate} : 1;
     my $initial = {
         vc => 'vendor',
         invnumber => $struct->{TxnNumber} // $struct->{DocNumber} // $struct->{Id}, # fall back to ID if nothing else set to avoid dupes
-        exchangerate => 1,
+        exchangerate => $exchrate,
 	arap => 'ap',
 	ARAP => 'AP',
         vendor_id => $struct->{vendor_id},
@@ -302,8 +303,6 @@ sub bill_to_vi {
         next unless $l->{'AccountBasedExpenseLineDetail'};
         my $linestruct = parts_save($l, 1);
         $LedgerSMB::App_State::DBH->commit;
-        use Data::Dumper;
-        warn Dumper($l);
         $linestruct->{sellprice} = $l->{Amount} if $l->{Amount};
         $initial->{"${_}_$rowcount"} = $linestruct->{$_} for keys %$linestruct;
         ++$rowcount;
@@ -326,8 +325,6 @@ sub bill_to_vi {
     }
     };
     $initial->{paidaccounts} = $paidrows;
-    use Data::Dumper;
-    print STDERR Dumper($initial) . "\n";
     return $initial;
 }
 
@@ -383,16 +380,16 @@ sub save_salesinvoice {
 
 sub invoice_to_si {
     my ($struct) = @_;
-    my $curr = 'USD';
+    my $curr = $struct->{CurrencyRef}->{value} // 'USD';
+    my $exchrate = $struct->{ExchangeRate} ? $struct->{ExchangeRate} : 1;
     my $initial = {
         vc => 'customer',
         invnumber => $struct->{TxnNumber} // $struct->{DocNumber},
         transdate => $struct->{TxnDate},
-        currency => 'USD',
-        exchangerate => 1,
 	arap => 'ar',
 	ARAP => 'AR',
 	customer_id => $struct->{customer_id},
+        exchangerate => $exchrate,
         AR => '1100-lsmbar',
         duedate => $struct->{DueDate},
         currency => $curr,

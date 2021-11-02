@@ -91,7 +91,7 @@ sub bill_email_save {
 sub get_invoice_lineitems {
     my ($struct) = @_;
     my @lines = ();
-    my $lineref = $struct->{InvoiceLineRet} // $struct->{ItemLineRet};
+    my $lineref = $struct->{InvoiceLineRet} // $struct->{ItemLineRet} // $struct->{"AccountBasedExpenseLineDetail"};
     my $innerref;
     $lineref = [$lineref] if ref $lineref eq 'HASH';
     @lines = @$lineref if ref $lineref;
@@ -102,7 +102,7 @@ sub get_invoice_lineitems {
     $lineref = [] unless ref $lineref;
 
     for (@$lineref){
-        $innerref = $_->{InvoiceLineRet};
+        $innerref = $_->{InvoiceLineRet} // $struct->{"AccountBasedExpenseLineDetail"};
         $innerref = [$lineref] if ref $innerref eq 'HASH';
         $innerref = [] unless ref $innerref ;
         push @lines, @$innerref;
